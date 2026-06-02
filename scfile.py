@@ -121,7 +121,7 @@ def get_confirmation(prompt_text):
             if ans in ['n', 'no', '0', '']:
                 return False
             print(f"{RED}  [!] Invalid input. Use (y) or (n).{RESET}", end="", flush=True)
-            time.sleep(0.8)
+            time.sleep(1.8)
             print("\r\033[K\033[A\r\033[K", end="", flush=True)
         except (KeyboardInterrupt, EOFError):
             return False
@@ -182,65 +182,109 @@ def get_all_human_users():
         pass
     return users
 
-def delete_path_content(path):
+def delete_path_content(path, delete_root=False):
     if not os.path.exists(path): return
+    use_sudo = check_sudo_status()
     try:
         if os.path.isfile(path) or os.path.islink(path):
-            os.unlink(path)
+            if use_sudo: subprocess.run(['sudo', 'rm', '-f', path], capture_output=True)
+            else: os.unlink(path)
+        elif delete_root:
+            if use_sudo: subprocess.run(['sudo', 'rm', '-rf', path], capture_output=True)
+            else: shutil.rmtree(path)
         else:
             for item in os.listdir(path):
                 item_path = os.path.join(path, item)
                 if os.path.isdir(item_path) and not os.path.islink(item_path):
-                    shutil.rmtree(item_path)
+                    if use_sudo: subprocess.run(['sudo', 'rm', '-rf', item_path], capture_output=True)
+                    else: shutil.rmtree(item_path)
                 else:
-                    os.unlink(item_path)
+                    if use_sudo: subprocess.run(['sudo', 'rm', '-f', item_path], capture_output=True)
+                    else: os.unlink(item_path)
     except:
         pass
 
+def find_recursive_targets(root_dir, target_name):
+    paths = []
+    total_size = 0
+    skip_dirs = {
+        '.cache', '.local', '.git', 'venv', 'node_modules', 
+        'Downloads', 'Pictures', 'Videos', 'Music', 'Desktop',
+        '.cargo', '.rustup', '.npm', '.nvm', '.vscode', '.idea'
+    }
+    
+    for dirpath, dirnames, filenames in os.walk(root_dir):
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+        if target_name in dirnames:
+            p = os.path.join(dirpath, target_name)
+            paths.append(p)
+            for dp, _, fns in os.walk(p):
+                for f in fns:
+                    fp = os.path.join(dp, f)
+                    try: 
+                        if not os.path.islink(fp):
+                            total_size += os.path.getsize(fp)
+                    except: pass
+    return paths, total_size
+
 def manage_integrated_user_cache():
     clear_screen()
-    header("Targeted User Profile Cache Scanner")
+    header("User Profile Cache Cleanup")
     home = get_user_home()
     
     user_paths = {
         "User Core Cache (General)   ": os.path.join(home, ".cache"),
+        "User Temporary Staging (tmp)": os.path.join(home, "tmp"),
         "Snap Application Cache       ": os.path.join(home, "snap/common/.cache"),
         "User Command History Logs    ": os.path.join(home, ".bash_history")
     }
     
-    print(f"{CYAN}[*] Scanning all user space cache frameworks...{RESET}\n")
+    print(f"{CYAN}[*] Initiating comprehensive user profile scan...{RESET}\n")
     scan_results = calculate_target_paths(user_paths)
-    total_bytes = 0
     
+    pycache_paths, pycache_size = find_recursive_targets(home, "__pycache__")
+    scan_results["Python Bytecode (__pycache__)"] = {
+        "path": pycache_paths,
+        "size": pycache_size,
+        "exists": len(pycache_paths) > 0,
+        "is_recursive": True
+    }
+    
+    total_bytes = 0
+    has_any_exists = False
     for name, info in scan_results.items():
         status_str = f"{YELLOW}{format_size(info['size'])}{RESET}" if info['exists'] else f"{RED}Not Found{RESET}"
-        print(f"    → {name} : {status_str}")
+        print(f"    → {name.ljust(32)} : {status_str}")
         total_bytes += info['size']
+        if info['exists']: has_any_exists = True
         
     print("-" * 65)
     print(f"    Aggregated User Target Footprint: {GREEN if total_bytes == 0 else YELLOW}{format_size(total_bytes)}{RESET}")
     print("-" * 65)
 
-    if total_bytes > 0:
-        if get_confirmation(f"{RED}[?] Proceed to purge all displayed User caches? (y/N): {RESET}"):
+    if has_any_exists:
+        print(f"\n{RED}    [!] WARNING: Purge is PERMANENT. Files will NOT go to Trash.{RESET}")
+        if get_confirmation(f"{YELLOW}    [?] Proceed to destroy all displayed user targets? (y/N): {RESET}"):
             print(f"\n{CYAN}[*] Discarding profile footprints...{RESET}")
             for name, info in scan_results.items():
-                if info['exists'] and info['size'] > 0:
-                    delete_path_content(info['path'])
-            print(f"{GREEN}[✓] Success: System user profile cache environment cleared.{RESET}")
+                if info['exists']:
+                    targets = info['path'] if isinstance(info['path'], list) else [info['path']]
+                    is_pycache = info.get("is_recursive", False)
+                    for t in targets:
+                        delete_path_content(t, delete_root=is_pycache)
+            print(f"{GREEN}[✓] Success: System user profile environment optimized.{RESET}")
         else:
-            print(f"\n{YELLOW}[-] Aborted: User cache deployment parameters left un-touched.{RESET}")
+            print(f"\n{YELLOW}[-] Aborted: User profile parameters left un-touched.{RESET}")
     else:
         print(f"{GREEN}[✓] Clean: User target directory structures are already pristine.{RESET}")
     wait_for_enter()
 
 def manage_integrated_system_cache():
     clear_screen()
-    header("Targeted System Engine Structural Cache Scanner")
+    header("System Engine Core Cleanup")
     
     if not HAS_SUDO_PERM:
         print(f"{RED}[X] Access Denied: Running in User-Only Mode.{RESET}")
-        print(f"{YELLOW}[!] System core metrics are locked. Authorize Sudo on runtime initialization.{RESET}")
         print("-" * 65)
         wait_for_enter()
         return
@@ -266,15 +310,16 @@ def manage_integrated_system_cache():
     print("-" * 65)
 
     if total_bytes > 0:
-        if get_confirmation(f"{RED}[?] Purge all listed systemic core engines and cache layouts? (y/N): {RESET}"):
+        print(f"\n{RED}    [!] WARNING: Purge is PERMANENT. System files will be lost.{RESET}")
+        if get_confirmation(f"{YELLOW}    [?] Purge all listed systemic core engines and cache layouts? (y/N): {RESET}"):
             print(f"\n{CYAN}[*] Executing deep deployment scrub routines...{RESET}")
             try:
                 subprocess.run(['sudo', 'apt-get', 'clean'], capture_output=True)
                 subprocess.run(['sudo', 'apt-get', 'autoremove', '-y'], capture_output=True)
                 subprocess.run(['sudo', 'journalctl', '--vacuum-time=1d'], capture_output=True)
                 
-                delete_path_content("/tmp")
-                delete_path_content("/var/cache")
+                delete_path_content("/tmp", delete_root=False)
+                delete_path_content("/var/cache", delete_root=False)
                 print(f"{GREEN}[✓] Success: System structural caches purged successfully.{RESET}")
             except Exception as e:
                 print(f"{RED}[X] Runtime Failure: Error executing structural system clean: {e}{RESET}")
@@ -284,165 +329,213 @@ def manage_integrated_system_cache():
         print(f"{GREEN}[✓] Clean: Core systemic architecture has no accumulated files.{RESET}")
     wait_for_enter()
 
-def manage_isolated_user_cache():
-    clear_screen()
-    header("Isolated Individual User Profile Purge")
-    users = get_all_human_users()
-    print(f"{CYAN}Registered Active Profiles On System:{RESET}")
-    for idx, (user, home) in enumerate(users, 1):
-        print(f"  [{idx}] User: {user.ljust(12)} Path: {home}")
-    
-    flush_input()
-    try:
-        u_idx = input(f"\n{YELLOW}Select target profile index number: {RESET}").strip()
-        idx_int = int(u_idx) - 1
-        if 0 <= idx_int < len(users):
-            target_user, target_home = users[idx_int]
-            c_path = os.path.join(target_home, ".cache")
-            size = calculate_target_paths({"temp": c_path})["temp"]["size"]
-            
-            print(f"\n    → Targeted User  : {GREEN}{target_user}{RESET}")
-            print(f"    → Footprint Size : {YELLOW}{format_size(size)}{RESET}")
-            
-            if size > 0:
-                if get_confirmation(f"\n{RED}[?] Destroy isolated cache framework for [{target_user}]? (y/N): {RESET}"):
-                    delete_path_content(c_path)
-                    print(f"{GREEN}[✓] User space environment cleared successfully.{RESET}")
-                else:
-                    print(f"{YELLOW}[-] Operation aborted.{RESET}")
-            else:
-                print(f"{GREEN}[✓] Profile target cache is already empty.{RESET}")
-        else:
-            print(f"{RED}[!] Error: Profile out of bound bounds range.{RESET}")
-    except:
-        print(f"{RED}[!] Error: Invalid numeric profile selection index.{RESET}")
-    wait_for_enter()
-
 def clean_snap_old_versions():
     clear_screen()
-    header("Deactivated & Redundant Snap Package Cleaner")
+    header("Redundant Snap Package Version Removal")
     if not HAS_SUDO_PERM:
         print(f"{RED}[X] Sudo authorization required to parse snap infrastructure.{RESET}")
         wait_for_enter()
         return
 
-    if get_confirmation(f"{RED}[?] Scan and destroy dead deactivated snap revisions? (y/N): {RESET}"):
-        print(f"{CYAN}[*] Evaluating core snap layout array...{RESET}")
-        try:
-            output = subprocess.check_output(["snap", "list", "--all"], text=True)
-            purged = False
-            for line in output.splitlines()[1:]:
-                if "disabled" in line:
-                    parts = line.split()
+    print(f"{CYAN}[*] Investigating core snap layout array...{RESET}\n")
+    try:
+        output = subprocess.check_output(["snap", "list", "--all"], text=True)
+        dead_snaps = []
+        for line in output.splitlines()[1:]:
+            if re.search(r'\bdisabled\b', line, re.IGNORECASE):
+                parts = re.split(r'\s{2,}', line.strip())
+                if not parts: parts = line.split()
+                if len(parts) >= 3:
                     name = parts[0]
                     rev = parts[2]
-                    print(f"    ← Destroying Legacy Version: {name} [Rev: {rev}]")
-                    subprocess.run(["sudo", "snap", "remove", name, f"--revision={rev}"], capture_output=True)
-                    purged = True
-            if purged:
-                print(f"{GREEN}[✓] Redundant dead snap packages purged successfully.{RESET}")
-            else:
-                print(f"{GREEN}[✓] Pristine: No disabled snap packages found on system.{RESET}")
-        except Exception as e:
-            print(f"{RED}[X] Fault: Failed to query core snap runtime controller.{RESET}")
-    else:
-        print(f"{YELLOW}[-] Snap clean operation aborted.{RESET}")
+                    if not rev.isdigit() and len(parts) > 3: rev = parts[3]
+                    dead_snaps.append((name, rev))
+        
+        if not dead_snaps:
+            print(f"{GREEN}[✓] Pristine: No disabled or legacy snap packages found.{RESET}")
+            wait_for_enter()
+            return
+
+        print(f"{YELLOW}[!] Discovered {len(dead_snaps)} redundant snap versions:{RESET}")
+        for name, rev in dead_snaps:
+            print(f"    → {name.ljust(20)} [Revision: {rev}]")
+        
+        print(f"\n{RED}    [!] WARNING: Removed snap versions cannot be restored.{RESET}")
+        if get_confirmation(f"{YELLOW}    [?] Proceed to destroy all redundant snap revisions? (y/N): {RESET}"):
+            print(f"\n{CYAN}[*] Purging deactivated revisions...{RESET}")
+            for name, rev in dead_snaps:
+                print(f"    ← Destroying: {name} ({rev})")
+                subprocess.run(["sudo", "snap", "remove", name, f"--revision={rev}"], capture_output=True)
+            print(f"\n{GREEN}[✓] Success: Redundant snap infrastructure cleared.{RESET}")
+        else:
+            print(f"\n{YELLOW}[-] Aborted: Redundant snap versions preserved.{RESET}")
+    except Exception as e:
+        print(f"{RED}[X] Fault: Failed to query core snap runtime controller: {e}{RESET}")
+    
     wait_for_enter()
 
 def clean_all_safe_macro():
     clear_screen()
-    header("CleanX Suite Sovereign Autonomous Global Optimization Routine")
+    header("Sovereign Mode: Full System Optimization")
     if not HAS_SUDO_PERM:
-        print(f"{RED}[X] High privilege execution denied. Sudo is required for Global Macro Routine.{RESET}")
+        print(f"{RED}[X] High privilege execution denied. Sudo is required for Sovereign Macro.{RESET}")
         wait_for_enter()
         return
 
-    if get_confirmation(f"{RED}[?] Authorize global storage cleaning stack? (y/N): {RESET}"):
-        print(f"\n{CYAN}[1/5] Erasing systemic package archives (APT Clean)...{RESET}")
-        subprocess.run(["sudo", "apt-get", "clean"], capture_output=True)
-        subprocess.run(["sudo", "apt-get", "autoremove", "-y"], capture_output=True)
-        
-        print(f"{CYAN}[2/5] Compressing logging infrastructure (Journal Vacuum)...{RESET}")
-        subprocess.run(["sudo", "journalctl", f"--vacuum-time=1d"], capture_output=True)
-        
-        print(f"{CYAN}[3/5] Cleaning rendering engine metadata (Thumbnails)...{RESET}")
-        users = get_all_human_users()
-        for u, home in users:
-            delete_path_content(os.path.join(home, ".cache/thumbnails"))
+    print(f"{CYAN}[*] Running architectural global scan...{RESET}\n")
+    
+    # 1. Scan Paths
+    sys_paths = {
+        "APT Package Archive Cache      ": "/var/cache/apt/archives",
+        "System Engine Journal Logs     ": "/var/log/journal",
+        "Volatile Boot Staging (/tmp)   ": "/tmp"
+    }
+    
+    results = calculate_target_paths(sys_paths)
+    
+    # 2. Add Users Thumbnails size
+    thumbnail_size = 0
+    all_users = get_all_human_users()
+    thumbnail_paths = []
+    for _, home in all_users:
+        tp = os.path.join(home, ".cache/thumbnails")
+        if os.path.exists(tp):
+            thumbnail_paths.append(tp)
+            for dp, _, fns in os.walk(tp):
+                for f in fns:
+                    fp = os.path.join(dp, f)
+                    try: 
+                        if not os.path.islink(fp): thumbnail_size += os.path.getsize(fp)
+                    except: pass
+
+    results["Global User Thumbnail Cache   "] = {"size": thumbnail_size, "exists": thumbnail_size > 0}
+
+    # Display results
+    total_bytes = 0
+    for name, info in results.items():
+        status = f"{YELLOW}{format_size(info['size'])}{RESET}" if info.get('exists', True) else f"{RED}Not Found{RESET}"
+        print(f"    → {name} : {status}")
+        total_bytes += info['size']
+
+    print("-" * 65)
+    print(f"    Aggregated Sovereign Footprint: {GREEN if total_bytes == 0 else YELLOW}{format_size(total_bytes)}{RESET}")
+    print(f"    Note: Kernel RAM optimization (Drop Caches) is also queued.")
+    print("-" * 65)
+
+    if total_bytes > 0:
+        print(f"\n{RED}    [!] CRITICAL: This will PERMANENTLY delete all listed items.{RESET}")
+        if get_confirmation(f"{YELLOW}    [?] Authorize global storage cleaning stack? (y/N): {RESET}"):
+            print(f"\n{CYAN}[1/5] Erasing systemic package archives (APT Clean)...{RESET}")
+            subprocess.run(["sudo", "apt-get", "clean"], capture_output=True)
+            subprocess.run(["sudo", "apt-get", "autoremove", "-y"], capture_output=True)
             
-        print(f"{CYAN}[4/5] Instructing kernel memory virtual pages (Drop Caches)...{RESET}")
-        subprocess.run(["sudo", "sync"], check=True)
-        subprocess.run("echo 3 | sudo tee /proc/sys/vm/drop_caches", shell=True, capture_output=True)
-        
-        print(f"{CYAN}[5/5] Purging volatile directory mounts (/tmp)...{RESET}")
-        delete_path_content("/tmp")
-        
-        print(f"\n{GREEN}[✓] Core Sovereign automation stack concluded execution successfully.{RESET}")
+            print(f"{CYAN}[2/5] Compressing logging infrastructure (Journal Vacuum)...{RESET}")
+            subprocess.run(["sudo", "journalctl", f"--vacuum-time=1d"], capture_output=True)
+            
+            print(f"{CYAN}[3/5] Cleaning rendering engine metadata (Thumbnails)...{RESET}")
+            for tp in thumbnail_paths:
+                delete_path_content(tp, delete_root=True)
+                
+            print(f"{CYAN}[4/5] Instructing kernel memory virtual pages (Drop Caches)...{RESET}")
+            subprocess.run(["sudo", "sync"], check=True)
+            subprocess.run("echo 3 | sudo tee /proc/sys/vm/drop_caches", shell=True, capture_output=True)
+            
+            print(f"{CYAN}[5/5] Purging volatile directory mounts (/tmp)...{RESET}")
+            delete_path_content("/tmp", delete_root=False)
+            
+            print(f"\n{GREEN}[✓] Core Sovereign automation stack concluded execution successfully.{RESET}")
+        else:
+            print(f"\n{YELLOW}[-] Aborted: Global macro optimization stack routine aborted.{RESET}")
     else:
-        print(f"{YELLOW}[-] Global macro optimization stack routine aborted.{RESET}")
+        print(f"{GREEN}[✓] Pristine: No systemic junk found during Sovereign scan.{RESET}")
+    
     wait_for_enter()
 
-def request_initial_sudo():
+def check_sudo_status():
+    return subprocess.run(['sudo', '-n', 'true'], capture_output=True).returncode == 0
+
+def attempt_elevation(show_logo=False):
     global HAS_SUDO_PERM
-    clear_screen()
-    app_logo()
-    print(f"{CYAN}[+] SECURITY INITIALIZATION OPTIONS:{RESET}\n")
-    print(f"    To fully inspect and purge systemic engines, journaling metrics,")
-    print(f"    and package list layout archives, root execution privileges are recommended.")
-    print("-" * 75)
-    
-    if get_confirmation(f"{YELLOW}[?] Elevate runtime session to Sudo for deep scanning? (y/N): {RESET}"):
+    if show_logo:
+        clear_screen()
+        app_logo()
+        print(f"{CYAN}[+] SECURITY INITIALIZATION OPTIONS:{RESET}\n")
+        print(f"    To fully inspect and purge systemic engines, journaling metrics,")
+        print(f"    and package list layout archives, root execution privileges are recommended.")
+        print("-" * 75)
+
+    if not show_logo or get_confirmation(f"{YELLOW}[?] Elevate runtime session to Sudo for deep scanning? (y/N): {RESET}"):
         print(f"\n{CYAN}[*] Interrogating privilege stack...{RESET}")
-        has_sudo_cache = subprocess.run(['sudo', '-n', 'true'], capture_output=True).returncode == 0
-        if os.getuid() == 0 or has_sudo_cache:
-            HAS_SUDO_PERM = True
-            return
         try:
             result = subprocess.run(['sudo', '-v'], check=False)
             if result.returncode == 0:
                 HAS_SUDO_PERM = True
                 print(f"{GREEN}[✓] Authentication successful. High-privilege mode active.{RESET}")
-                time.sleep(0.8)
+                time.sleep(2.0)
+                return True
             else:
                 HAS_SUDO_PERM = False
                 print(f"{RED}[X] Authentication failed. Dropping back to User-Only mode.{RESET}")
-                time.sleep(1.5)
+                time.sleep(2.5)
+                return False
         except:
             HAS_SUDO_PERM = False
+            return False
     else:
         HAS_SUDO_PERM = False
-        print(f"\n{YELLOW}[-] Restricted execution authorized. Systemic pathways are locked.{RESET}")
-        time.sleep(1.5)
+        if show_logo:
+            print(f"\n{YELLOW}[-] Restricted execution authorized. Systemic pathways are locked.{RESET}")
+            time.sleep(2.5)
+    return False
 
 def main_menu():
-    request_initial_sudo()
+    global HAS_SUDO_PERM
+    # Initial check & startup prompt
+    if check_sudo_status() or os.getuid() == 0:
+        HAS_SUDO_PERM = True
+        clear_screen()
+        app_logo()
+        print(f"{GREEN}[✓] Existing privilege session detected. Sudo mode enabled.{RESET}")
+        time.sleep(1.5)
+    else:
+        attempt_elevation(show_logo=True)
+
     while True:
+        # Sync status with terminal cache
+        if not HAS_SUDO_PERM:
+            if check_sudo_status(): HAS_SUDO_PERM = True
+        else:
+            if not check_sudo_status() and os.getuid() != 0: HAS_SUDO_PERM = False
+
         clear_screen()
         app_logo()
         
         sudo_status_str = f"{GREEN}Sudo-Privileged{RESET}" if HAS_SUDO_PERM else f"{YELLOW}User-Restricted{RESET}"
         print(f"{CYAN}[+] CONSOLIDATED OPTIMIZATION INTERFACES [Status: {sudo_status_str}]:{RESET}\n")
-        print(f"    {GREEN}[1]{RESET} Integrated Scan & Purge: User Profile Cache Environment")
-        print(f"    {GREEN}[2]{RESET} Integrated Scan & Purge: System Engine Core Cache " + (f"({GREEN}Unlocked{RESET})" if HAS_SUDO_PERM else f"({RED}Locked{RESET})"))
-        print(f"    {GREEN}[3]{RESET} Isolated Purge: Target Specific User Account Space")
-        print(f"    {GREEN}[4]{RESET} Architectural Scrub: Remove Legacy Superseded Snap Revisions")
-        print(f"    {GREEN}[5]{RESET} Sovereign Automation: Trigger Global Clean All Safe Macro Routine")
-        print(f"    {RED}[0]{RESET} Terminate CleanX Optimization Session")
+        print(f"    {GREEN}[1]{RESET} User Profile Cache Cleanup (Scan & Purge)")
+        print(f"    {GREEN}[2]{RESET} System Engine Core Cleanup (Logs & APT) " + (f"({GREEN}Unlocked{RESET})" if HAS_SUDO_PERM else f"({RED}Locked{RESET})"))
+        print(f"    {GREEN}[3]{RESET} Redundant Snap Package Version Removal " + (f"({GREEN}Unlocked{RESET})" if HAS_SUDO_PERM else f"({RED}Locked{RESET})"))
+        print(f"    {GREEN}[4]{RESET} Full System Optimization Macro (Sovereign Mode) " + (f"({GREEN}Unlocked{RESET})" if HAS_SUDO_PERM else f"({RED}Locked{RESET})"))
+        print(f"    {RED}[0]{RESET} Exit CleanX Optimization Session")
         
         flush_input()
         choice = input(f"\n{YELLOW}Select operation index identifier: {RESET}").strip()
         
         if choice == "1": manage_integrated_user_cache()
-        elif choice == "2": manage_integrated_system_cache()
-        elif choice == "3": manage_isolated_user_cache()
-        elif choice == "4": clean_snap_old_versions()
-        elif choice == "5": clean_all_safe_macro()
+        elif choice in ["2", "3", "4"]:
+            if not HAS_SUDO_PERM:
+                if get_confirmation(f"{YELLOW}[?] This option is Locked. Elevate to Sudo now? (y/N): {RESET}"):
+                    if not attempt_elevation(show_logo=False): continue
+            
+            if choice == "2": manage_integrated_system_cache()
+            elif choice == "3": clean_snap_old_versions()
+            elif choice == "4": clean_all_safe_macro()
         elif choice == "0":
             print(f"{GREEN}\n[✓] Diagnostic optimization session exited cleanly. Goodbye Nasser!{RESET}\n")
             sys.exit(0)
         else:
             print(f"{RED}[!] Operational mismatch: '{choice}' is not valid. Re-trying...{RESET}", end="", flush=True)
-            time.sleep(1.2)
+            time.sleep(2.5)
             print("\r\033[K", end="", flush=True)
 
 if __name__ == "__main__":
