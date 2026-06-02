@@ -3,9 +3,9 @@ import sys
 import subprocess
 import shutil
 import time
+import re
 from contextlib import contextmanager
 
-# --- CONFIGURATION & COLORS ---
 GREEN = "\033[92m"
 YELLOW = "\033[93m"
 RED = "\033[91m"
@@ -13,13 +13,10 @@ CYAN = "\033[96m"
 WHITE = "\033[97m"
 RESET = "\033[0m"
 
-# متغير عالمي لتتبع هل تم الموافقة على السودو في البداية أم لا
 HAS_SUDO_PERM = False
 
-# --- PROTECTED TERMINAL CONTROL ---
 @contextmanager
 def terminal_echo_control(enable_echo=True):
-    """تحكم صارم لمنع الحروف العشوائية من التشوه البصري للواجهة"""
     if os.name == 'posix':
         import termios
         fd = sys.stdin.fileno()
@@ -50,7 +47,6 @@ def flush_input():
 def wait_for_enter():
     flush_input()
     print(f"\n{YELLOW}Press [Enter] to return to menu...{RESET}", end="", flush=True)
-    # إيقاف الـ Echo تماماً أثناء انتظار ضغط انتر لحماية الواجهة من تشويه المدخلات العشوائية
     with terminal_echo_control(enable_echo=False):
         while True:
             try:
@@ -60,74 +56,60 @@ def wait_for_enter():
             except (KeyboardInterrupt, EOFError):
                 break
 
-def header():
+def header(title):
     columns = shutil.get_terminal_size().columns
-    padding_logo = " " * max(0, (columns - 45) // 2)
-    slogan = "Structural Cache Analytics & Storage Optimization Suite"
-    credits = "(Developed by Nasser)"
+    bar = "═" * min(columns, 65)
+    print(f"\n{CYAN}{bar.center(columns)}")
+    print(f"{title.center(columns)}")
+    print(f"{bar.center(columns)}{RESET}\n")
+
+def app_logo():
+    columns = shutil.get_terminal_size().columns
+    
+    logo_cleanx = [
+        " ██████╗██╗     ███████╗ █████╗ ███╗   ██╗██╗  ██╗",
+        "██╔════╝██║     ██╔════╝██╔══██╗████╗  ██║╚██╗██╔╝",
+        "██║     ██║     █████╗  ███████║██╔██╗ ██║ ╚███╔╝ ",
+        "██║     ██║     ██╔══╝  ██╔══██║██║╚██╗██║ ██╔██╗ ",
+        "╚██████╗███████╗███████╗██║  ██║██║ ╚████║██╔╝ ██╗",
+        " ╚═════╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝"
+    ]
+    
+    logo_sweeper = [
+        "      ___          ",
+        "     /  /\\         ",
+        "    /  /::\\        ",
+        "   /  /:/\\:\\       ",
+        "  /  /:/  \\:\\      ",
+        " /__/:/ \\__\\:\\     ",
+        " \\  \\:\\ /  /:/   ==[ SYSTEM PURGE ENGINE ]==",
+        "  \\  \\:\\  /:/    ==[ DISK OPTIMIZER      ]==",
+        "   \\  \\:\\/:/       ",
+        "    \\  \\::/        ",
+        "     \\__\\/         "
+    ]
+    
+    print(f"{RED}")
+    for line in logo_cleanx:
+        print(line.center(columns))
+    print(f"{RESET}")
+    
+    print(f"{CYAN}")
+    for line in logo_sweeper:
+        print(line.center(columns))
+    print(f"{RESET}")
+    
+    slogan = "⚡ Advanced Architectural Cache Analytics & Storage Scrub Suite ⚡"
+    credits = "🛡️ [ Crafted Control Logical Framework by Nasser ] 🛡️"
     padding_slogan = " " * max(0, (columns - len(slogan)) // 2)
     padding_credits = " " * max(0, (columns - len(credits)) // 2)
 
-    print(f"{RED}")
-    print(f"{padding_logo}  ████████╗  ████████╗  ████████╗  ████████╗")
-    print(f"{padding_logo}  ██╔═════╝  ██╔════██╗ ██╔════██╗ ██╔═════╝")
-    print(f"{padding_logo}  ██║        ██║    ██║ ████████╔╝ ███████╗ ")
-    print(f"{padding_logo}  ██║        ██║    ██║ ██╔════██╗ ██╔════╝ ")
-    print(f"{padding_logo}  ╚████████╗ ╚████████╔╝ ██║    ██║ ████████╗")
-    print(f"{padding_logo}   ╚═══════╝  ╚═══════╝  ╚═╝    ╚═╝ ╚═══════╝")
-    print(f"{RESET}")
-    
     print(f"{padding_slogan}{YELLOW}{slogan}{RESET}")
     print(f"{padding_credits}{WHITE}{credits}{RESET}")
     
-    bar_width = min(columns, 70)
-    bar = "-" * bar_width
+    bar_width = min(columns, 75)
+    bar = "─" * bar_width
     print(f"{RED}{bar.center(columns)}{RESET}\n")
-
-# --- UTILS ---
-def get_user_home():
-    sudo_user = os.environ.get('SUDO_USER')
-    if sudo_user:
-        try:
-            import pwd
-            return pwd.getpwnam(sudo_user).pw_dir
-        except:
-            return os.path.expanduser(f"~{sudo_user}")
-    return os.path.expanduser("~")
-
-def request_initial_sudo():
-    """طلب صلاحيات السودو عند بدء التشغيل بناءً على اختيار المستخدم"""
-    global HAS_SUDO_PERM
-    clear_screen()
-    header()
-    print(f"{CYAN}[+] INITIALIZATION OPTIONS:{RESET}\n")
-    print(f"    To fully scan and purge system logs & package databases,")
-    print(f"    root elevation privileges are highly recommended.")
-    print("-" * 70)
-    
-    # استخدام دالة التأكيد الصارمة
-    if get_confirmation(f"{YELLOW}[?] Launch tool with Sudo privileges for deep scan? (y/N): {RESET}"):
-        print(f"\n{CYAN}[*] Requesting authentication...{RESET}")
-        has_sudo_cache = subprocess.run(['sudo', '-n', 'true'], capture_output=True).returncode == 0
-        if os.getuid() == 0 or has_sudo_cache:
-            HAS_SUDO_PERM = True
-            return
-        try:
-            result = subprocess.run(['sudo', '-v'], check=False)
-            if result.returncode == 0:
-                HAS_SUDO_PERM = True
-                print(f"{GREEN}[✓] Authentication successful.{RESET}")
-                time.sleep(0.8)
-            else:
-                HAS_SUDO_PERM = False
-                print(f"{RED}[X] Authentication failed. Proceeding in User-Only mode.{RESET}")
-                time.sleep(1.5)
-        except:
-            HAS_SUDO_PERM = False
-    else:
-        HAS_SUDO_PERM = False
-        print(f"\n{YELLOW}[-] User-Only Mode selected. System paths will be locked.{RESET}")
-        time.sleep(1.5)
 
 def get_confirmation(prompt_text):
     while True:
@@ -151,31 +133,57 @@ def calculate_target_paths(paths_dict):
         exists = os.path.exists(path)
         if exists:
             if os.path.isfile(path) or os.path.islink(path):
-                try:
-                    total_size = os.path.getsize(path)
-                except:
-                    pass
+                try: total_size = os.path.getsize(path)
+                except: pass
             else:
                 for dirpath, _, filenames in os.walk(path):
                     for f in filenames:
                         fp = os.path.join(dirpath, f)
                         if os.path.exists(fp) and not os.path.islink(fp):
-                            try:
-                                total_size += os.path.getsize(fp)
-                            except:
-                                pass
+                            try: total_size += os.path.getsize(fp)
+                            except: pass
         results[name] = {"path": path, "size": total_size, "exists": exists}
     return results
 
 def format_size(bytes_size):
-    mb = bytes_size / (1024 * 1024)
-    if mb > 1024:
-        return f"{mb / 1024:.2f} GB"
-    return f"{mb:.2f} MB"
+    if bytes_size == 0: return "0.00 MB"
+    kb = bytes_size / 1024
+    if kb < 1024:
+        return f"{kb:.2f} KB"
+    mb = kb / 1024
+    if mb < 1024:
+        return f"{mb:.2f} MB"
+    gb = mb / 1024
+    return f"{gb:.2f} GB"
+
+def get_user_home():
+    sudo_user = os.environ.get('SUDO_USER')
+    if sudo_user:
+        try:
+            import pwd
+            return pwd.getpwnam(sudo_user).pw_dir
+        except:
+            return os.path.expanduser(f"~{sudo_user}")
+    return os.path.expanduser("~")
+
+def get_all_human_users():
+    users = []
+    try:
+        with open("/etc/passwd", "r") as f:
+            for line in f:
+                parts = line.split(":")
+                if len(parts) >= 6:
+                    uid = int(parts[2])
+                    home = parts[5]
+                    if (uid >= 1000 and uid != 65534) or uid == 0:
+                        if os.path.exists(home):
+                            users.append((parts[0], home))
+    except:
+        pass
+    return users
 
 def delete_path_content(path):
-    if not os.path.exists(path):
-        return
+    if not os.path.exists(path): return
     try:
         if os.path.isfile(path) or os.path.islink(path):
             os.unlink(path)
@@ -189,12 +197,9 @@ def delete_path_content(path):
     except:
         pass
 
-# --- USER CACHE MANAGEMENT ---
-def manage_user_cache():
+def manage_integrated_user_cache():
     clear_screen()
-    header()
-    print(f"{CYAN}[+] TARGETED USER CACHE SCAN (No Redundancy){RESET}\n")
-    
+    header("Targeted User Profile Cache Scanner")
     home = get_user_home()
     
     user_paths = {
@@ -203,6 +208,7 @@ def manage_user_cache():
         "User Command History Logs    ": os.path.join(home, ".bash_history")
     }
     
+    print(f"{CYAN}[*] Scanning all user space cache frameworks...{RESET}\n")
     scan_results = calculate_target_paths(user_paths)
     total_bytes = 0
     
@@ -212,33 +218,29 @@ def manage_user_cache():
         total_bytes += info['size']
         
     print("-" * 65)
-    print(f"    Total User Cache Target Size: {GREEN if total_bytes == 0 else YELLOW}{format_size(total_bytes)}{RESET}")
+    print(f"    Aggregated User Target Footprint: {GREEN if total_bytes == 0 else YELLOW}{format_size(total_bytes)}{RESET}")
     print("-" * 65)
 
     if total_bytes > 0:
-        if get_confirmation(f"{RED}[?] Proceed to clear the detected User cache? (y/N): {RESET}"):
-            print(f"\n{CYAN}[*] Purging user cache paths...{RESET}")
+        if get_confirmation(f"{RED}[?] Proceed to purge all displayed User caches? (y/N): {RESET}"):
+            print(f"\n{CYAN}[*] Discarding profile footprints...{RESET}")
             for name, info in scan_results.items():
                 if info['exists'] and info['size'] > 0:
                     delete_path_content(info['path'])
-            print(f"{GREEN}[✓] Success: User space cache has been completely cleared.{RESET}")
+            print(f"{GREEN}[✓] Success: System user profile cache environment cleared.{RESET}")
         else:
-            print(f"\n{YELLOW}[-] Action Canceled: User cache directories were left untouched.{RESET}")
+            print(f"\n{YELLOW}[-] Aborted: User cache deployment parameters left un-touched.{RESET}")
     else:
-        print(f"{GREEN}[✓] Clean: Targeted user cache is already 0.00 MB.{RESET}")
-        
+        print(f"{GREEN}[✓] Clean: User target directory structures are already pristine.{RESET}")
     wait_for_enter()
 
-# --- SYSTEM CACHE MANAGEMENT ---
-def manage_system_cache():
+def manage_integrated_system_cache():
     clear_screen()
-    header()
-    print(f"{CYAN}[+] TARGETED SYSTEM CACHE SCAN (Engine Core Paths){RESET}\n")
+    header("Targeted System Engine Structural Cache Scanner")
     
-    # حظر الفحص فوراً إذا تم رفض السودو في بداية تشغيل السكربت
     if not HAS_SUDO_PERM:
-        print(f"{RED}[X] Access Denied: This utility is running in User-Only mode.{RESET}")
-        print(f"{YELLOW}[!] System paths are locked because Sudo was not authorized at startup.{RESET}")
+        print(f"{RED}[X] Access Denied: Running in User-Only Mode.{RESET}")
+        print(f"{YELLOW}[!] System core metrics are locked. Authorize Sudo on runtime initialization.{RESET}")
         print("-" * 65)
         wait_for_enter()
         return
@@ -250,6 +252,7 @@ def manage_system_cache():
         "Temporary Runtime Files       ": "/tmp"
     }
     
+    print(f"{CYAN}[*] Scanning architectural kernel & package caches...{RESET}\n")
     scan_results = calculate_target_paths(system_paths)
     total_bytes = 0
     
@@ -259,12 +262,12 @@ def manage_system_cache():
         total_bytes += info['size']
         
     print("-" * 65)
-    print(f"    Total System Cache Target Size: {GREEN if total_bytes == 0 else YELLOW}{format_size(total_bytes)}{RESET}")
+    print(f"    Aggregated System Target Footprint: {GREEN if total_bytes == 0 else YELLOW}{format_size(total_bytes)}{RESET}")
     print("-" * 65)
 
     if total_bytes > 0:
-        if get_confirmation(f"{RED}[?] Proceed to clear System cache? (y/N): {RESET}"):
-            print(f"\n{CYAN}[*] Executing system-wide package & log purge...{RESET}")
+        if get_confirmation(f"{RED}[?] Purge all listed systemic core engines and cache layouts? (y/N): {RESET}"):
+            print(f"\n{CYAN}[*] Executing deep deployment scrub routines...{RESET}")
             try:
                 subprocess.run(['sudo', 'apt-get', 'clean'], capture_output=True)
                 subprocess.run(['sudo', 'apt-get', 'autoremove', '-y'], capture_output=True)
@@ -272,44 +275,173 @@ def manage_system_cache():
                 
                 delete_path_content("/tmp")
                 delete_path_content("/var/cache")
-                print(f"{GREEN}[✓] Success: System structural cache successfully purged.{RESET}")
+                print(f"{GREEN}[✓] Success: System structural caches purged successfully.{RESET}")
             except Exception as e:
-                print(f"{RED}[X] Error: Core system cleanup encountered a runtime error.{RESET}")
+                print(f"{RED}[X] Runtime Failure: Error executing structural system clean: {e}{RESET}")
         else:
-            print(f"\n{YELLOW}[-] Action Canceled: System deployment files were preserved.{RESET}")
+            print(f"\n{YELLOW}[-] Aborted: Core system operational files preserved safely.{RESET}")
     else:
-        print(f"{GREEN}[✓] Clean: Structural system cache is already 0.00 MB.{RESET}")
-        
+        print(f"{GREEN}[✓] Clean: Core systemic architecture has no accumulated files.{RESET}")
     wait_for_enter()
 
-# --- MAIN CONTROLLER MENU ---
-def main_menu():
-    # استدعاء دالة سؤال السودو الترحيبية مرة واحدة فقط عند بداية البرنامج
-    request_initial_sudo()
+def manage_isolated_user_cache():
+    clear_screen()
+    header("Isolated Individual User Profile Purge")
+    users = get_all_human_users()
+    print(f"{CYAN}Registered Active Profiles On System:{RESET}")
+    for idx, (user, home) in enumerate(users, 1):
+        print(f"  [{idx}] User: {user.ljust(12)} Path: {home}")
     
+    flush_input()
+    try:
+        u_idx = input(f"\n{YELLOW}Select target profile index number: {RESET}").strip()
+        idx_int = int(u_idx) - 1
+        if 0 <= idx_int < len(users):
+            target_user, target_home = users[idx_int]
+            c_path = os.path.join(target_home, ".cache")
+            size = calculate_target_paths({"temp": c_path})["temp"]["size"]
+            
+            print(f"\n    → Targeted User  : {GREEN}{target_user}{RESET}")
+            print(f"    → Footprint Size : {YELLOW}{format_size(size)}{RESET}")
+            
+            if size > 0:
+                if get_confirmation(f"\n{RED}[?] Destroy isolated cache framework for [{target_user}]? (y/N): {RESET}"):
+                    delete_path_content(c_path)
+                    print(f"{GREEN}[✓] User space environment cleared successfully.{RESET}")
+                else:
+                    print(f"{YELLOW}[-] Operation aborted.{RESET}")
+            else:
+                print(f"{GREEN}[✓] Profile target cache is already empty.{RESET}")
+        else:
+            print(f"{RED}[!] Error: Profile out of bound bounds range.{RESET}")
+    except:
+        print(f"{RED}[!] Error: Invalid numeric profile selection index.{RESET}")
+    wait_for_enter()
+
+def clean_snap_old_versions():
+    clear_screen()
+    header("Deactivated & Redundant Snap Package Cleaner")
+    if not HAS_SUDO_PERM:
+        print(f"{RED}[X] Sudo authorization required to parse snap infrastructure.{RESET}")
+        wait_for_enter()
+        return
+
+    if get_confirmation(f"{RED}[?] Scan and destroy dead deactivated snap revisions? (y/N): {RESET}"):
+        print(f"{CYAN}[*] Evaluating core snap layout array...{RESET}")
+        try:
+            output = subprocess.check_output(["snap", "list", "--all"], text=True)
+            purged = False
+            for line in output.splitlines()[1:]:
+                if "disabled" in line:
+                    parts = line.split()
+                    name = parts[0]
+                    rev = parts[2]
+                    print(f"    ← Destroying Legacy Version: {name} [Rev: {rev}]")
+                    subprocess.run(["sudo", "snap", "remove", name, f"--revision={rev}"], capture_output=True)
+                    purged = True
+            if purged:
+                print(f"{GREEN}[✓] Redundant dead snap packages purged successfully.{RESET}")
+            else:
+                print(f"{GREEN}[✓] Pristine: No disabled snap packages found on system.{RESET}")
+        except Exception as e:
+            print(f"{RED}[X] Fault: Failed to query core snap runtime controller.{RESET}")
+    else:
+        print(f"{YELLOW}[-] Snap clean operation aborted.{RESET}")
+    wait_for_enter()
+
+def clean_all_safe_macro():
+    clear_screen()
+    header("CleanX Suite Sovereign Autonomous Global Optimization Routine")
+    if not HAS_SUDO_PERM:
+        print(f"{RED}[X] High privilege execution denied. Sudo is required for Global Macro Routine.{RESET}")
+        wait_for_enter()
+        return
+
+    if get_confirmation(f"{RED}[?] Authorize global storage cleaning stack? (y/N): {RESET}"):
+        print(f"\n{CYAN}[1/5] Erasing systemic package archives (APT Clean)...{RESET}")
+        subprocess.run(["sudo", "apt-get", "clean"], capture_output=True)
+        subprocess.run(["sudo", "apt-get", "autoremove", "-y"], capture_output=True)
+        
+        print(f"{CYAN}[2/5] Compressing logging infrastructure (Journal Vacuum)...{RESET}")
+        subprocess.run(["sudo", "journalctl", f"--vacuum-time=1d"], capture_output=True)
+        
+        print(f"{CYAN}[3/5] Cleaning rendering engine metadata (Thumbnails)...{RESET}")
+        users = get_all_human_users()
+        for u, home in users:
+            delete_path_content(os.path.join(home, ".cache/thumbnails"))
+            
+        print(f"{CYAN}[4/5] Instructing kernel memory virtual pages (Drop Caches)...{RESET}")
+        subprocess.run(["sudo", "sync"], check=True)
+        subprocess.run("echo 3 | sudo tee /proc/sys/vm/drop_caches", shell=True, capture_output=True)
+        
+        print(f"{CYAN}[5/5] Purging volatile directory mounts (/tmp)...{RESET}")
+        delete_path_content("/tmp")
+        
+        print(f"\n{GREEN}[✓] Core Sovereign automation stack concluded execution successfully.{RESET}")
+    else:
+        print(f"{YELLOW}[-] Global macro optimization stack routine aborted.{RESET}")
+    wait_for_enter()
+
+def request_initial_sudo():
+    global HAS_SUDO_PERM
+    clear_screen()
+    app_logo()
+    print(f"{CYAN}[+] SECURITY INITIALIZATION OPTIONS:{RESET}\n")
+    print(f"    To fully inspect and purge systemic engines, journaling metrics,")
+    print(f"    and package list layout archives, root execution privileges are recommended.")
+    print("-" * 75)
+    
+    if get_confirmation(f"{YELLOW}[?] Elevate runtime session to Sudo for deep scanning? (y/N): {RESET}"):
+        print(f"\n{CYAN}[*] Interrogating privilege stack...{RESET}")
+        has_sudo_cache = subprocess.run(['sudo', '-n', 'true'], capture_output=True).returncode == 0
+        if os.getuid() == 0 or has_sudo_cache:
+            HAS_SUDO_PERM = True
+            return
+        try:
+            result = subprocess.run(['sudo', '-v'], check=False)
+            if result.returncode == 0:
+                HAS_SUDO_PERM = True
+                print(f"{GREEN}[✓] Authentication successful. High-privilege mode active.{RESET}")
+                time.sleep(0.8)
+            else:
+                HAS_SUDO_PERM = False
+                print(f"{RED}[X] Authentication failed. Dropping back to User-Only mode.{RESET}")
+                time.sleep(1.5)
+        except:
+            HAS_SUDO_PERM = False
+    else:
+        HAS_SUDO_PERM = False
+        print(f"\n{YELLOW}[-] Restricted execution authorized. Systemic pathways are locked.{RESET}")
+        time.sleep(1.5)
+
+def main_menu():
+    request_initial_sudo()
     while True:
         clear_screen()
-        header()
+        app_logo()
         
-        # إظهار حالة الصلاحيات الحالية في القائمة لتبدو احترافية
-        sudo_status_str = f"{GREEN}Sudo-Enabled{RESET}" if HAS_SUDO_PERM else f"{YELLOW}User-Only Mode{RESET}"
-        print(f"{CYAN}[+] SELECT ADVANCED SCAN TARGET [Status: {sudo_status_str}]:{RESET}\n")
-        print(f"    {GREEN}[1]{RESET} Scan & Clean User Cache Only (Targeted)")
-        print(f"    {GREEN}[2]{RESET} Scan & Clean System Engine Cache " + (f"({GREEN}Available{RESET})" if HAS_SUDO_PERM else f"({RED}Locked{RESET})"))
-        print(f"    {GREEN}[3]{RESET} Exit Terminal Program")
+        sudo_status_str = f"{GREEN}Sudo-Privileged{RESET}" if HAS_SUDO_PERM else f"{YELLOW}User-Restricted{RESET}"
+        print(f"{CYAN}[+] CONSOLIDATED OPTIMIZATION INTERFACES [Status: {sudo_status_str}]:{RESET}\n")
+        print(f"    {GREEN}[1]{RESET} Integrated Scan & Purge: User Profile Cache Environment")
+        print(f"    {GREEN}[2]{RESET} Integrated Scan & Purge: System Engine Core Cache " + (f"({GREEN}Unlocked{RESET})" if HAS_SUDO_PERM else f"({RED}Locked{RESET})"))
+        print(f"    {GREEN}[3]{RESET} Isolated Purge: Target Specific User Account Space")
+        print(f"    {GREEN}[4]{RESET} Architectural Scrub: Remove Legacy Superseded Snap Revisions")
+        print(f"    {GREEN}[5]{RESET} Sovereign Automation: Trigger Global Clean All Safe Macro Routine")
+        print(f"    {RED}[0]{RESET} Terminate CleanX Optimization Session")
         
         flush_input()
-        choice = input(f"\n{YELLOW}Enter choice (1-3): {RESET}").strip()
+        choice = input(f"\n{YELLOW}Select operation index identifier: {RESET}").strip()
         
-        if choice == "1":
-            manage_user_cache()
-        elif choice == "2":
-            manage_system_cache()
-        elif choice == "3":
-            print(f"{GREEN}\n[✓] Secure Core Diagnostics Exited cleanly. Goodbye!{RESET}\n")
+        if choice == "1": manage_integrated_user_cache()
+        elif choice == "2": manage_integrated_system_cache()
+        elif choice == "3": manage_isolated_user_cache()
+        elif choice == "4": clean_snap_old_versions()
+        elif choice == "5": clean_all_safe_macro()
+        elif choice == "0":
+            print(f"{GREEN}\n[✓] Diagnostic optimization session exited cleanly. Goodbye Nasser!{RESET}\n")
             sys.exit(0)
         else:
-            print(f"{RED}[!] Error: Invalid selection '{choice}'. Please enter 1, 2, or 3.{RESET}", end="", flush=True)
+            print(f"{RED}[!] Operational mismatch: '{choice}' is not valid. Re-trying...{RESET}", end="", flush=True)
             time.sleep(1.2)
             print("\r\033[K", end="", flush=True)
 
@@ -317,5 +449,5 @@ if __name__ == "__main__":
     try:
         main_menu()
     except KeyboardInterrupt:
-        print(f"\n\n{RED}[!] Script terminated safely via Ctrl+C.{RESET}\n")
+        print(f"\n\n{RED}[!] Operational interruption caught via hardware signal. Terminating...{RESET}\n")
         sys.exit(0)
