@@ -122,7 +122,6 @@ def ask_yes_no(prompt: str, default_no: bool = True) -> bool:
         try:
             print()
             center_print(f"{prompt}  {hint}")
-            print()
             c = cols()
             raw = input(" " * max(0, c // 2 - 3) + "  ➜  ").strip().lower()
         except (KeyboardInterrupt, EOFError):
@@ -137,24 +136,17 @@ def ask_yes_no(prompt: str, default_no: bool = True) -> bool:
             return not default_no
 
         center_print(f"{RED}  [!] Please enter (y) to confirm or (n) to cancel.{RESET}")
-        time.sleep(1.0)
+        time.sleep(1.5)
+        print("\033[A\r\033[K" * 4, end="", flush=True)
 
 
-def ask_choice(options: list[str]) -> str:
-    while True:
-        _flush_stdin()
-        try:
-            print()
-            center_print(f"{YELLOW}  Select an option number:{RESET}")
-            print()
-            c = cols()
-            raw = input(" " * max(0, c // 2 - 3) + "  ➜  ").strip()
-        except (KeyboardInterrupt, EOFError):
-            return "0"
-        if raw in options:
-            return raw
-        center_print(f"{RED}  [!] '{raw}' is not a valid option. Try again.{RESET}")
-        time.sleep(1.0)
+def ask_choice() -> str:
+    _flush_stdin()
+    try:
+        c = cols()
+        return input(" " * max(0, c // 2 - 3) + "  ➜  ").strip()
+    except (KeyboardInterrupt, EOFError):
+        return "0"
 
 
 def format_size(b: int) -> str:
@@ -195,33 +187,37 @@ def _walk_size(path: Path) -> int:
     return total
 
 
-def scan_paths(paths: dict[str, str]) -> dict[str, dict]:
-    results = {}
-    for label, raw_path in paths.items():
-        p    = Path(raw_path)
+def scan_described_paths(targets: list[dict]) -> list[dict]:
+    for t in targets:
+        p    = Path(t["path"])
         size = _walk_size(p) if p.exists() else 0
-        results[label] = {
-            "path":       p,
+        t.update({
             "size_bytes": size,
             "size_fmt":   format_size(size),
             "exists":     p.exists(),
-        }
-    return results
+        })
+    return targets
 
 
-def print_scan_table(results: dict[str, dict], title: str = "") -> int:
+def print_described_table(targets: list[dict], title: str = "") -> int:
     if title:
         center_print(f"{BOLD}{title}{RESET}")
         print()
     total = 0
-    for label, info in results.items():
-        if info["exists"]:
-            status = f"{YELLOW}{BOLD}{info['size_fmt']}{RESET}"
+    for t in targets:
+        if t["exists"]:
+            status = f"{YELLOW}{BOLD}{t['size_fmt']}{RESET}"
         else:
             status = f"{DIM}Not Found{RESET}"
-        center_print(f"  {DIM}→{RESET}  {label:<38}  {status}")
-        total += info["size_bytes"]
-    print()
+            
+        importance = f"{RED}{BOLD}[IMPORTANT]{RESET} " if t.get("is_important") else ""
+        center_print(f"  {DIM}→{RESET}  {t['label']:<32}  {status}")
+        center_print(f"     {DIM}{importance}{t['desc']}{RESET}")
+        print()
+        
+        if t["exists"]:
+            total += t["size_bytes"]
+            
     _divider()
     color = GREEN if total == 0 else YELLOW
     center_print(f"  Total footprint:  {color}{BOLD}{format_size(total)}{RESET}")
@@ -240,39 +236,27 @@ def _run(cmd: list[str], use_sudo: bool = False) -> bool:
 
 
 def delete_path_content(path: Path, delete_root: bool = False) -> bool:
-    if not path.exists():
-        return True
+    if not path.exists(): return True
     sudo = check_sudo_status()
     try:
         if path.is_file() or path.is_symlink():
-            if sudo:
-                return _run(['rm', '-f', str(path)], use_sudo=True)
-            path.unlink()
-            return True
+            if sudo: return _run(['rm', '-f', str(path)], use_sudo=True)
+            path.unlink(); return True
         if delete_root:
-            if sudo:
-                return _run(['rm', '-rf', str(path)], use_sudo=True)
-            shutil.rmtree(path, ignore_errors=True)
-            return True
+            if sudo: return _run(['rm', '-rf', str(path)], use_sudo=True)
+            shutil.rmtree(path, ignore_errors=True); return True
         ok = True
         for child in path.iterdir():
             try:
                 if child.is_dir() and not child.is_symlink():
-                    if sudo:
-                        ok &= _run(['rm', '-rf', str(child)], use_sudo=True)
-                    else:
-                        shutil.rmtree(child, ignore_errors=True)
+                    if sudo: ok &= _run(['rm', '-rf', str(child)], use_sudo=True)
+                    else: shutil.rmtree(child, ignore_errors=True)
                 else:
-                    if sudo:
-                        ok &= _run(['rm', '-f', str(child)], use_sudo=True)
-                    else:
-                        child.unlink(missing_ok=True)
-            except OSError:
-                ok = False
+                    if sudo: ok &= _run(['rm', '-f', str(child)], use_sudo=True)
+                    else: child.unlink(missing_ok=True)
+            except OSError: ok = False
         return ok
-    except PermissionError as e:
-        center_print(f"{RED}  [!] Permission error: {e}{RESET}")
-        return False
+    except PermissionError: return False
 
 
 def get_user_home() -> Path:
@@ -292,13 +276,11 @@ def get_all_human_users() -> list[tuple[str, Path]]:
         with open("/etc/passwd") as f:
             for line in f:
                 parts = line.split(":")
-                if len(parts) < 6:
-                    continue
+                if len(parts) < 6: continue
                 name, uid, home = parts[0], int(parts[2]), Path(parts[5].strip())
                 if (uid == 0 or (uid >= 1000 and uid != 65534)) and home.is_dir():
                     users.append((name, home))
-    except Exception:
-        pass
+    except Exception: pass
     return sorted(users, key=lambda u: (u[0] != "root", u[0]))
 
 
@@ -309,38 +291,28 @@ def check_sudo_status() -> bool:
 def attempt_elevation(show_intro: bool = False) -> bool:
     global HAS_SUDO_PERM
     if show_intro:
-        clear_screen()
-        app_logo()
+        clear_screen(); app_logo()
         center_print(f"{CYAN}{BOLD}[+] Privilege Initialization{RESET}")
         print()
         center_print("  Sudo rights are required for deep system cleaning.")
         center_print("  Restricted mode is available without elevation.")
-        print()
-        _divider()
+        print(); _divider()
     if show_intro and not ask_yes_no(f"{YELLOW}[?] Elevate session to Sudo now?{RESET}"):
         HAS_SUDO_PERM = False
-        print()
-        center_print(f"{YELLOW}  [-] Running in restricted mode (no sudo).{RESET}")
-        time.sleep(1.5)
-        return False
-    print()
-    center_print(f"{CYAN}  [*] Validating permissions...{RESET}")
+        print(); center_print(f"{YELLOW}  [-] Restricted mode authorized. System pathways locked.{RESET}")
+        time.sleep(2.0); return False
+    print(); center_print(f"{CYAN}  [*] Interrogating privilege stack...{RESET}")
     try:
         result = subprocess.run(['sudo', '-v'], check=False)
         if result.returncode == 0:
             HAS_SUDO_PERM = True
-            center_print(f"{GREEN}  [✓] Authorization granted successfully.{RESET}")
-            time.sleep(1.2)
-            return True
+            center_print(f"{GREEN}  [✓] Authentication successful. High-privilege mode active.{RESET}")
+            time.sleep(1.5); return True
         else:
             HAS_SUDO_PERM = False
-            center_print(f"{RED}  [✗] Authentication failed.{RESET}")
-            time.sleep(1.5)
-            return False
-    except Exception:
-        HAS_SUDO_PERM = False
-        time.sleep(1.5)
-        return False
+            center_print(f"{RED}  [✗] Authentication failed. Dropping back to User mode.{RESET}")
+            time.sleep(2.0); return False
+    except Exception: HAS_SUDO_PERM = False; return False
 
 
 def _find_recursive_targets(root: Path, name_pattern: str, skip_folders: set[str] = None) -> tuple[list[Path], int]:
@@ -363,175 +335,127 @@ def _find_recursive_targets(root: Path, name_pattern: str, skip_folders: set[str
     return found, total_size
 
 
+def _find_dead_logs(root: Path) -> tuple[list[Path], int]:
+    found: list[Path] = []
+    total = 0
+    pattern = re.compile(r'.*\.(gz|\d+|old)$')
+    try:
+        for f in root.rglob("*"):
+            if f.is_file() and pattern.match(f.name):
+                found.append(f); total += f.stat().st_size
+    except Exception: pass
+    return found, total
+
+
 def manage_user_cache() -> None:
-    clear_screen()
-    header("User Cache Sweeper")
+    clear_screen(); header("User Cache Sweeper")
     home = get_user_home()
-    
-    paths = {
-        "General Cache (~/.cache)         ": str(home / ".cache"),
-        "Node Package Manager (~/.npm)    ": str(home / ".npm"),
-        "User Temporary Staging (~/tmp)   ": str(home / "tmp"),
-        "Snap Application Cache          ": str(home / "snap/common/.cache"),
-        "Command History Log              ": str(home / ".bash_history"),
-        "System Trash Bin                 ": str(home / ".local/share/Trash"),
-        "VS Code Interface Cache          ": str(home / ".config/Code/Cache"),
-        "VS Code Script Cache             ": str(home / ".config/Code/CachedData"),
-        "VS Code Extension Cache          ": str(home / ".vscode/extensions/.cache"),
-        "Mozilla Firefox Web Cache        ": str(home / ".cache/mozilla/firefox"),
-        "Google Chrome Web Cache          ": str(home / ".cache/google-chrome"),
-        "Brave Browser Web Cache          ": str(home / ".cache/BraveSoftware/Brave-Browser"),
-    }
-    
-    center_print(f"{CYAN}  [*] Scanning user profile...{RESET}")
-    print()
-    results = scan_paths(paths)
-    
-    # Python recursive scan
+    targets = [
+        {"label": "General Application Cache", "path": str(home / ".cache"), "desc": "Temporary files for installed software including Pip.", "is_important": False},
+        {"label": "Node Package Manager (npm)", "path": str(home / ".npm"), "desc": "Download cache for Javascript development libraries.", "is_important": False},
+        {"label": "User Temporary Staging", "path": str(home / "tmp"), "desc": "Personal temporary folder for miscellaneous user data.", "is_important": False},
+        {"label": "Snap Execution Cache", "path": str(home / "snap/common/.cache"), "desc": "Cached assets specifically for Snap package operations.", "is_important": True},
+        {"label": "Command History Log", "path": str(home / ".bash_history"), "desc": "Stored history of your terminal execution commands.", "is_important": False},
+        {"label": "System Trash Bin", "path": str(home / ".local/share/Trash"), "desc": "Contents currently residing in your Recycle Bin.", "is_important": False},
+        {"label": "VS Code Interface Cache", "path": str(home / ".config/Code/Cache"), "desc": "Temporary Electron UI files for Visual Studio Code.", "is_important": False},
+        {"label": "VS Code Script Cache", "path": str(home / ".config/Code/CachedData"), "desc": "Compiled script versions for faster VS Code launch.", "is_important": False},
+        {"label": "VS Code Extension Cache", "path": str(home / ".vscode/extensions/.cache"), "desc": "Metadata and cached assets for your IDE plugins.", "is_important": False},
+        {"label": "Firefox Web Cache", "path": str(home / ".cache/mozilla/firefox"), "desc": "Stored website snapshots and assets from Firefox.", "is_important": False},
+        {"label": "Chrome Web Cache", "path": str(home / ".cache/google-chrome"), "desc": "Stored website snapshots and assets from Chrome.", "is_important": False},
+        {"label": "Brave Web Cache", "path": str(home / ".cache/BraveSoftware/Brave-Browser"), "desc": "Stored website snapshots and assets from Brave.", "is_important": False},
+    ]
+    center_print(f"{CYAN}  [*] Initiating comprehensive user profile scan...{RESET}\n")
+    results = scan_described_paths(targets)
     pyc_paths, pyc_size = _find_recursive_targets(home, "__pycache__")
-    results["Python Bytecode (__pycache__)    "] = {
-        "path":       pyc_paths,
-        "size_bytes": pyc_size,
-        "size_fmt":   format_size(pyc_size),
-        "exists":     bool(pyc_paths),
-        "is_list":    True,
-    }
-    
-    # Broken Symlinks recursive scan
+    results.append({"label": "Python Bytecode Junk", "path": pyc_paths, "desc": "Recursive __pycache__ clusters found in your project folders.", "is_important": False, "exists": bool(pyc_paths), "size_bytes": pyc_size, "size_fmt": format_size(pyc_size), "is_list": True})
     dead_links, _ = _find_recursive_targets(home, "broken_symlinks")
-    results["Broken System Symlinks (Dead)    "] = {
-        "path":       dead_links,
-        "size_bytes": 0,
-        "size_fmt":   f"{len(dead_links)} links",
-        "exists":     bool(dead_links),
-        "is_list":    True,
-    }
-    
-    total = print_scan_table(results, title=f"Target Profile: {CYAN}{home}{RESET}")
-    if total == 0 and not dead_links:
-        center_print(f"{GREEN}  [✓] Clean: No cache clutter detected.{RESET}")
-        wait_for_enter()
-        return
-        
-    center_print(f"{RED}  [!] Warning: Deletion is permanent and cannot be undone.{RESET}")
-    if ask_yes_no(f"{YELLOW}[?] Wipe all listed profile caches?{RESET}"):
-        print()
-        center_print(f"{CYAN}  [*] Erasing files...{RESET}")
-        print()
-        for label, info in results.items():
-            if not info["exists"]:
-                continue
-            targets = info["path"] if info.get("is_list") else [info["path"]]
-            delete_root = info.get("is_list", False)
-            for t in targets:
-                delete_path_content(Path(t), delete_root=delete_root)
-            center_print(f"    [{GREEN}✓{RESET}]  {label.strip()}")
-        print()
-        center_print(f"{GREEN}  [✓] Done: User profile scrubbed successfully.{RESET}")
-    else:
-        print()
-        center_print(f"{YELLOW}  [-] Aborted: No data was removed.{RESET}")
+    results.append({"label": "Broken System Symlinks", "path": dead_links, "desc": "Dead shortcuts pointing to non-existent file locations.", "is_important": True, "exists": bool(dead_links), "size_bytes": 0, "size_fmt": f"{len(dead_links)} links", "is_list": True})
+    total = print_described_table(results, title=f"Target Profile: {CYAN}{home}{RESET}")
+    if total == 0 and not any(r["label"] == "Broken System Symlinks" and r["exists"] for r in results):
+        center_print(f"{GREEN}  [✓] Clean: No cache clutter detected.{RESET}"); wait_for_enter(); return
+    center_print(f"{RED}  [!] WARNING: Purge is PERMANENT. Files will NOT go to Trash.{RESET}")
+    if ask_yes_no(f"{YELLOW}  [?] Wipe all listed profile caches?{RESET}"):
+        print(); center_print(f"{CYAN}  [*] Erasing files...{RESET}")
+        for r in results:
+            if r["exists"]:
+                targets = r["path"] if r.get("is_list") else [r["path"]]
+                for t in targets: delete_path_content(Path(t), delete_root=r.get("is_list", False))
+                center_print(f"    [{GREEN}✓{RESET}]  {r['label']}")
+        print(); center_print(f"{GREEN}  [✓] Done: User profile scrubbed successfully.{RESET}")
+    else: print(); center_print(f"{YELLOW}  [-] Aborted: No data was removed.{RESET}")
     wait_for_enter()
 
 
 def manage_system_cache() -> None:
-    clear_screen()
-    header("System Cache Sweeper")
+    clear_screen(); header("System Cache Sweeper")
     if not HAS_SUDO_PERM:
-        center_print(f"{RED}  [✗] Error: This option requires Sudo privileges.{RESET}")
-        wait_for_enter()
-        return
-    paths = {
-        "APT Package Archives             ": "/var/cache/apt/archives",
-        "Manual Page Cache                ": "/var/cache/man",
-        "Apache2 Cache                    ": "/var/cache/apache2",
-        "Application Info Cache           ": "/var/cache/app-info",
-        "Software Catalog Cache           ": "/var/cache/swcatalog",
-        "Temporary Files (/tmp)           ": "/tmp",
-    }
-    center_print(f"{CYAN}  [*] Scanning system cache paths...{RESET}")
-    print()
-    results = scan_paths(paths)
-    total = print_scan_table(results)
+        center_print(f"{RED}  [✗] Error: This option requires Sudo privileges.{RESET}"); wait_for_enter(); return
+    targets = [
+        {"label": "APT Package Archives", "path": "/var/cache/apt/archives", "desc": "Local repository of downloaded .deb installer files.", "is_important": True},
+        {"label": "Systemd Crash Core Dumps", "path": "/var/lib/systemd/coredump", "desc": "Massive frozen snapshots of crashed applications.", "is_important": True},
+        {"label": "Manual Page Cache", "path": "/var/cache/man", "desc": "Pre-rendered manual pages for system documentation.", "is_important": False},
+        {"label": "Apache2 Server Cache", "path": "/var/cache/apache2", "desc": "Temporary web server assets and module caches.", "is_important": False},
+        {"label": "App Store Info Cache", "path": "/var/cache/app-info", "desc": "Ubuntu Software metadata and catalog icons.", "is_important": False},
+        {"label": "Software Catalog Cache", "path": "/var/cache/swcatalog", "desc": "AppStream software metadata for Linux repositories.", "is_important": False},
+        {"label": "Temporary Files (/tmp)", "path": "/tmp", "desc": "System-wide temporary directory for all root processes.", "is_important": True},
+    ]
+    center_print(f"{CYAN}  [*] Scanning architectural system cache paths...{RESET}\n")
+    results = scan_described_paths(targets)
+    dead_logs, logs_size = _find_dead_logs(Path("/var/log"))
+    results.append({"label": "Archived System Logs", "path": dead_logs, "desc": "Old versions of system logs (.gz and .old) no longer in use.", "is_important": False, "exists": bool(dead_logs), "size_bytes": logs_size, "size_fmt": format_size(logs_size), "is_list": True})
+    total = print_described_table(results)
     if total == 0:
-        center_print(f"{GREEN}  [✓] Clean: System caches are empty.{RESET}")
-        wait_for_enter()
-        return
-    center_print(f"{RED}  [!] Warning: Deep optimization cannot be undone.{RESET}")
-    if not ask_yes_no(f"{YELLOW}[?] Proceed with full system cache purge?{RESET}"):
-        print()
-        center_print(f"{YELLOW}  [-] Aborted: No changes were made.{RESET}")
-        wait_for_enter()
-        return
-    print()
-    center_print(f"{CYAN}  [1/2] Pruning APT database...{RESET}")
-    _run(['apt-get', 'clean'], True)
-    _run(['apt-get', 'autoremove', '-y'], True)
+        center_print(f"{GREEN}  [✓] Clean: System engine caches are empty.{RESET}"); wait_for_enter(); return
+    center_print(f"{RED}  [!] WARNING: Purge is PERMANENT. System files will be lost.{RESET}")
+    if not ask_yes_no(f"{YELLOW}  [?] Purge all listed systemic core engines and cache layouts?{RESET}"):
+        print(); center_print(f"{YELLOW}  [-] Aborted: Core systemic architecture preserved safely.{RESET}"); wait_for_enter(); return
+    print(); center_print(f"{CYAN}  [1/2] Pruning systemic package databases...{RESET}")
+    _run(['apt-get', 'clean'], True); _run(['apt-get', 'autoremove', '-y'], True)
     center_print(f"    [{GREEN}✓{RESET}]  APT cleanup complete")
-
-    center_print(f"{CYAN}  [2/2] Purging remaining cache targets...{RESET}")
-    for label, info in results.items():
-        if info["exists"] and "APT" not in label:
-            delete_path_content(info["path"], delete_root=False)
-            center_print(f"    [{GREEN}✓{RESET}]  {label.strip()}")
-    print()
-    center_print(f"{GREEN}  [✓] Done: System cache scrubbed successfully.{RESET}")
+    center_print(f"{CYAN}  [2/2] Executing deep deployment scrub routines...{RESET}")
+    for r in results:
+        if r["exists"] and "APT" not in r["label"]:
+            targets = r["path"] if r.get("is_list") else [r["path"]]
+            for t in targets: delete_path_content(Path(t), delete_root=False)
+            center_print(f"    [{GREEN}✓{RESET}]  {r['label']}")
+    print(); center_print(f"{GREEN}  [✓] Success: System structural caches purged successfully.{RESET}")
     wait_for_enter()
 
 
 def manage_orphaned_packages() -> None:
-    clear_screen()
-    header("Orphaned Package Discovery")
+    clear_screen(); header("Orphaned Package Discovery")
     if not HAS_SUDO_PERM:
-        center_print(f"{RED}  [✗] Error: Sudo privileges required.{RESET}")
-        wait_for_enter()
-        return
-    center_print(f"{CYAN}  [*] Querying APT for redundant dependencies...{RESET}")
-    print()
+        center_print(f"{RED}  [✗] Error: Sudo privileges required.{RESET}"); wait_for_enter(); return
+    center_print(f"{CYAN}  [*] Querying APT for redundant dependencies...{RESET}\n")
     try:
         out = subprocess.check_output(["sudo", "apt-get", "autoremove", "--dry-run"], text=True)
-    except Exception:
-        out = ""
+    except Exception: out = ""
     orphans = []
     capture = False
     for line in out.splitlines():
-        if "The following packages will be REMOVED:" in line:
-            capture = True
-            continue
+        if "The following packages will be REMOVED:" in line: capture = True; continue
         if capture:
             if line.startswith(" ") or line.strip() == "":
                 pkgs = line.strip().split()
                 if pkgs: orphans.extend(pkgs)
-            else:
-                break
+            else: break
     if not orphans:
-        center_print(f"{GREEN}  [✓] No orphaned packages identified.{RESET}")
-        wait_for_enter()
-        return
-    center_print(f"{YELLOW}  [!] Identified {len(orphans)} orphaned packages:{RESET}")
+        center_print(f"{GREEN}  [✓] No orphaned packages identified.{RESET}"); wait_for_enter(); return
+    center_print(f"{YELLOW}  [!] Identified {len(orphans)} orphaned packages:{RESET}\n")
+    for pkg in sorted(orphans): center_print(f"    {DIM}→{RESET}  {pkg}")
     print()
-    for pkg in sorted(orphans):
-        center_print(f"    {DIM}→{RESET}  {pkg}")
-    print()
-    if ask_yes_no(f"{YELLOW}[?] Purge all listed orphaned dependencies?{RESET}"):
-        print()
-        center_print(f"{CYAN}  [*] Executing systemic purge...{RESET}")
-        if _run(['apt-get', 'autoremove', '-y'], True):
-            center_print(f"{GREEN}  [✓] Success: System is now free of orphaned artifacts.{RESET}")
-        else:
-            center_print(f"{RED}  [✗] Failure: Purge routine encountered an error.{RESET}")
-    else:
-        print()
-        center_print(f"{YELLOW}  [-] Aborted: No packages were removed.{RESET}")
+    if ask_yes_no(f"{YELLOW}  [?] Purge all listed orphaned dependencies?{RESET}"):
+        print(); center_print(f"{CYAN}  [*] Executing systemic purge...{RESET}")
+        if _run(['apt-get', 'autoremove', '-y'], True): center_print(f"{GREEN}  [✓] Success: System free of orphaned artifacts.{RESET}")
+        else: center_print(f"{RED}  [✗] Failure: Purge routine encountered an error.{RESET}")
+    else: print(); center_print(f"{YELLOW}  [-] Aborted: No packages were removed.{RESET}")
     wait_for_enter()
 
 
 def manage_large_files() -> None:
-    clear_screen()
-    header("Large File Radar")
+    clear_screen(); header("Large File Radar")
     home = get_user_home()
-    center_print(f"{CYAN}  [*] Scanning {home} for heavy consumers (>100MB)...{RESET}")
-    print()
+    center_print(f"{CYAN}  [*] Scanning {home} for heavy consumers (>100MB)...{RESET}\n")
     skip = {'.cache', '.local', '.git', 'venv', '.venv', 'node_modules'}
     found_files = []
     for dirpath, dirnames, filenames in os.walk(home):
@@ -540,138 +464,101 @@ def manage_large_files() -> None:
             fp = Path(dirpath) / f
             try:
                 if not fp.is_symlink():
-                    size = fp.stat().st_size
-                    if size > 100 * 1024 * 1024:
-                        found_files.append((fp, size))
-            except OSError:
-                pass
+                    sz = fp.stat().st_size
+                    if sz > 100 * 1024 * 1024: found_files.append((fp, sz))
+            except OSError: pass
     if not found_files:
-        center_print(f"{GREEN}  [✓] No files larger than 100MB found.{RESET}")
-        wait_for_enter()
-        return
+        center_print(f"{GREEN}  [✓] No files larger than 100MB found.{RESET}"); wait_for_enter(); return
     found_files.sort(key=lambda x: x[1], reverse=True)
     top_5 = found_files[:5]
-    center_print(f"{YELLOW}  [!] Top {len(top_5)} Heavy Consumers identified:{RESET}")
-    print()
-    for fp, size in top_5:
-        center_print(f"    {RED}{format_size(size):<10}{RESET}  {DIM}{fp}{RESET}")
-    print()
-    center_print(f"{DIM}Note: These files are not deleted automatically. Review them manually.{RESET}")
+    center_print(f"{YELLOW}  [!] Top {len(top_5)} Heavy Consumers identified:{RESET}\n")
+    for fp, size in top_5: center_print(f"    {RED}{format_size(size):<10}{RESET}  {DIM}{fp}{RESET}")
+    print(); center_print(f"{DIM}Note: These files are not deleted automatically. Review them manually.{RESET}")
     wait_for_enter()
 
 
 def clean_snap_old_versions() -> None:
-    clear_screen()
-    header("Snap Version Scrubber")
+    clear_screen(); header("Snap Version Scrubber")
     if not HAS_SUDO_PERM:
-        center_print(f"{RED}  [✗] Error: Sudo privileges required.{RESET}")
-        wait_for_enter()
-        return
-    center_print(f"{CYAN}  [*] Searching for disabled Snap revisions...{RESET}")
-    print()
-    try:
-        out = subprocess.check_output(["snap", "list", "--all"], text=True)
-    except Exception:
-        out = ""
+        center_print(f"{RED}  [✗] Error: Sudo privileges required.{RESET}"); wait_for_enter(); return
+    center_print(f"{CYAN}  [*] Searching for disabled Snap revisions...{RESET}\n")
+    try: out = subprocess.check_output(["snap", "list", "--all"], text=True)
+    except Exception: out = ""
     disabled = []
     for line in out.splitlines()[1:]:
-        if 'disabled' in line.lower():
-            p = line.split()
-            if len(p) >= 3:
-                disabled.append((p[0], p[2]))
+        if re.search(r'\bdisabled\b', line, re.IGNORECASE):
+            parts = re.split(r'\s{2,}', line.strip())
+            if not parts: parts = line.split()
+            if len(parts) >= 3:
+                name = parts[0]; rev = parts[2]
+                if not rev.isdigit() and len(parts) > 3: rev = parts[3]
+                disabled.append((name, rev))
     if not disabled:
-        center_print(f"{GREEN}  [✓] No old Snap revisions found.{RESET}")
-        wait_for_enter()
-        return
-    for name, rev in disabled:
-        center_print(f"  {DIM}→{RESET}  {name:<28}  {DIM}[rev: {rev}]{RESET}")
-    if ask_yes_no(f"\n{YELLOW}[?] Permanently remove these disabled revisions?{RESET}"):
-        print()
-        center_print(f"{CYAN}  [*] Removing revisions...{RESET}")
-        print()
+        center_print(f"{GREEN}  [✓] No old Snap revisions found.{RESET}"); wait_for_enter(); return
+    for name, rev in disabled: center_print(f"  {DIM}→{RESET}  {name:<28}  {DIM}[rev: {rev}]{RESET}")
+    print()
+    if ask_yes_no(f"{YELLOW}  [?] Permanently remove these disabled revisions?{RESET}"):
+        print(); center_print(f"{CYAN}  [*] Removing revisions...{RESET}\n")
         for n, r in disabled:
             ok = _run(['snap', 'remove', n, f'--revision={r}'], True)
-            status_color = GREEN if ok else RED
-            status_icon  = "✓" if ok else "✗"
-            center_print(f"    [{status_color}{status_icon}{RESET}]  {n}  (rev {r})")
-        print()
-        center_print(f"{GREEN}  [✓] Done: Old revisions removed.{RESET}")
-    else:
-        print()
-        center_print(f"{YELLOW}  [-] Aborted: No revisions were removed.{RESET}")
+            status = f"{GREEN}✓" if ok else f"{RED}✗"
+            center_print(f"    [{status}{RESET}]  {n} (rev {r})")
+        print(); center_print(f"{GREEN}  [✓] Done: Old revisions removed.{RESET}")
+    else: print(); center_print(f"{YELLOW}  [-] Aborted: No revisions were removed.{RESET}")
     wait_for_enter()
-
-
-def _sync_sudo_status() -> None:
-    global HAS_SUDO_PERM
-    if HAS_SUDO_PERM and not check_sudo_status() and os.getuid() != 0:
-        HAS_SUDO_PERM = False
-    elif not HAS_SUDO_PERM and check_sudo_status():
-        HAS_SUDO_PERM = True
 
 
 def main_menu() -> None:
     global HAS_SUDO_PERM
     if check_sudo_status() or os.getuid() == 0:
         HAS_SUDO_PERM = True
-        clear_screen()
-        app_logo()
+        clear_screen(); app_logo()
         center_print(f"{GREEN}  [✓] Sudo authorization active.{RESET}")
         time.sleep(1.0)
-    else:
-        attempt_elevation(True)
+    else: attempt_elevation(show_intro=True)
 
     while True:
-        _sync_sudo_status()
-        clear_screen()
-        app_logo()
+        if not HAS_SUDO_PERM:
+            if check_sudo_status(): HAS_SUDO_PERM = True
+        else:
+            if not check_sudo_status() and os.getuid() != 0: HAS_SUDO_PERM = False
+        clear_screen(); app_logo()
         mode = f"{GREEN}{BOLD}Privileged{RESET}" if HAS_SUDO_PERM else f"{YELLOW}{BOLD}Restricted{RESET}"
         lock = f"{GREEN}[Unlocked]{RESET}" if HAS_SUDO_PERM else f"{RED}[Locked]{RESET}"
         center_print(f"{CYAN}  [+] Framework Status: {mode}  {DIM}|{RESET}  Privileges: {lock}{RESET}")
-        print()
-        _divider()
-        print()
+        print(); _divider(); print()
         center_print(f"  {GREEN}{BOLD}[1]{RESET}  Deep Scan & Purge: User Profile Cache")
         center_print(f"  {GREEN}{BOLD}[2]{RESET}  Integrated Purge: System Engine Cache  {lock}")
         center_print(f"  {GREEN}{BOLD}[3]{RESET}  Architectural Scrub: Remove Old Snap Revisions  {lock}")
         center_print(f"  {GREEN}{BOLD}[4]{RESET}  Discovery: Find & Purge Orphaned Packages  {lock}")
         center_print(f"  {GREEN}{BOLD}[5]{RESET}  Radar: Identify Top 5 Largest Home Files")
         if not HAS_SUDO_PERM:
-            print()
-            center_print(f"  {DIM}[9]  Elevate Session to Sudo{RESET}")
-        print()
-        _divider()
-        print()
+            print(); center_print(f"  {DIM}[9]  Elevate Session to Sudo{RESET}")
+        print(); _divider(); print()
         center_print(f"  {RED}{BOLD}[0]{RESET}  {DIM}Exit CleanX{RESET}")
         print()
-        valid = ["0", "1", "2", "3", "4", "5"] + (["9"] if not HAS_SUDO_PERM else [])
-        choice = ask_choice(valid)
-        if choice == "1":
-            manage_user_cache()
+        choice = ask_choice()
+        if choice == "1": manage_user_cache()
         elif choice in ("2", "3", "4"):
             if not HAS_SUDO_PERM:
-                print()
-                center_print(f"{YELLOW}  [!] Action blocked: Sudo privileges required.{RESET}")
-                if ask_yes_no("[?] Authenticate Sudo right now?"):
-                    if not attempt_elevation():
-                        continue
+                print(); center_print(f"{YELLOW}  [!] Action blocked: Sudo privileges required.{RESET}")
+                if ask_yes_no("  [?] Authenticate Sudo right now?"):
+                    if not attempt_elevation(): continue
             if choice == "2": manage_system_cache()
             elif choice == "3": clean_snap_old_versions()
             elif choice == "4": manage_orphaned_packages()
-        elif choice == "5":
-            manage_large_files()
-        elif choice == "9":
-            attempt_elevation()
+        elif choice == "5": manage_large_files()
+        elif choice == "9": attempt_elevation()
         elif choice == "0":
-            print()
-            center_print(f"{GREEN}  [✓] Session terminated. Goodbye!{RESET}")
+            print(); center_print(f"{GREEN}  [✓] Session terminated. Goodbye Nasser!{RESET}")
             sys.exit(0)
-
+        else:
+            print(); center_print(f"{RED}  [!] Operational mismatch: '{choice}' is not valid.{RESET}")
+            time.sleep(1.5)
+            print("\033[A\r\033[K" * 4, end="", flush=True)
 
 if __name__ == "__main__":
-    try:
-        main_menu()
+    try: main_menu()
     except KeyboardInterrupt:
-        print()
-        center_print(f"{YELLOW}  [!] Interrupted by user (Ctrl+C).{RESET}")
+        print(); center_print(f"{RED}  [!] Operation interrupted.{RESET}")
         sys.exit(0)
