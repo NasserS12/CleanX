@@ -116,11 +116,6 @@ def app_logo() -> None:
 
 
 def ask_yes_no(prompt: str, default_no: bool = True) -> bool:
-    """
-    Ask a yes/no question.
-    default_no=True  -> default is N (pressing Enter = False)
-    default_no=False -> default is Y (pressing Enter = True)
-    """
     hint = f"{DIM}(y/N){RESET}" if default_no else f"{DIM}(Y/n){RESET}"
     while True:
         _flush_stdin()
@@ -139,18 +134,13 @@ def ask_yes_no(prompt: str, default_no: bool = True) -> bool:
         if raw in ('n', 'no', '0'):
             return False
         if raw == '':
-            # Enter with no input -> return the default value
-            return not default_no  # default_no=True -> False, default_no=False -> True
+            return not default_no
 
         center_print(f"{RED}  [!] Please enter (y) to confirm or (n) to cancel.{RESET}")
         time.sleep(1.0)
 
 
 def ask_choice(options: list[str]) -> str:
-    """
-    Prompt for a menu selection and return the chosen option number.
-    options: list of valid values (e.g. ["0","1","2","3","4"])
-    """
     while True:
         _flush_stdin()
         try:
@@ -168,7 +158,6 @@ def ask_choice(options: list[str]) -> str:
 
 
 def format_size(b: int) -> str:
-    """Convert a size in bytes to a human-readable string."""
     if b <= 0:
         return "0 B"
     size = float(b)
@@ -354,33 +343,52 @@ def attempt_elevation(show_intro: bool = False) -> bool:
         return False
 
 
-def _find_pycache(root: Path) -> tuple[list[Path], int]:
-    skip = {'.cache', '.local', '.git', 'venv', '.venv', 'node_modules', 'Downloads'}
+def _find_recursive_targets(root: Path, name_pattern: str, skip_folders: set[str] = None) -> tuple[list[Path], int]:
+    if skip_folders is None:
+        skip_folders = {'.cache', '.local', '.git', 'venv', '.venv', 'node_modules', 'Downloads'}
     found: list[Path] = []
-    total = 0
-    for dirpath, dirnames, _ in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in skip and not d.startswith('.')]
-        p = Path(dirpath) / "__pycache__"
-        if p.is_dir():
-            found.append(p)
-            total += _walk_size(p)
-    return found, total
+    total_size = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in skip_folders and not d.startswith('.')]
+        if name_pattern == "__pycache__":
+            if "__pycache__" in dirnames:
+                p = Path(dirpath) / "__pycache__"
+                found.append(p)
+                total_size += _walk_size(p)
+        else: # Generic file search (like broken symlinks)
+            for f in filenames:
+                fp = Path(dirpath) / f
+                if fp.is_symlink() and not fp.exists():
+                    found.append(fp)
+    return found, total_size
 
 
 def manage_user_cache() -> None:
     clear_screen()
     header("User Cache Sweeper")
     home = get_user_home()
+    
     paths = {
         "General Cache (~/.cache)         ": str(home / ".cache"),
-        "Snap Execution Cache             ": str(home / "snap/common/.cache"),
+        "Node Package Manager (~/.npm)    ": str(home / ".npm"),
+        "User Temporary Staging (~/tmp)   ": str(home / "tmp"),
+        "Snap Application Cache          ": str(home / "snap/common/.cache"),
         "Command History Log              ": str(home / ".bash_history"),
+        "System Trash Bin                 ": str(home / ".local/share/Trash"),
+        "VS Code Interface Cache          ": str(home / ".config/Code/Cache"),
+        "VS Code Script Cache             ": str(home / ".config/Code/CachedData"),
+        "VS Code Extension Cache          ": str(home / ".vscode/extensions/.cache"),
+        "Mozilla Firefox Web Cache        ": str(home / ".cache/mozilla/firefox"),
+        "Google Chrome Web Cache          ": str(home / ".cache/google-chrome"),
+        "Brave Browser Web Cache          ": str(home / ".cache/BraveSoftware/Brave-Browser"),
     }
+    
     center_print(f"{CYAN}  [*] Scanning user profile...{RESET}")
     print()
     results = scan_paths(paths)
-    center_print(f"{DIM}  [...] Searching for Python bytecode artifacts (__pycache__)...{RESET}")
-    pyc_paths, pyc_size = _find_pycache(home)
+    
+    # Python recursive scan
+    pyc_paths, pyc_size = _find_recursive_targets(home, "__pycache__")
     results["Python Bytecode (__pycache__)    "] = {
         "path":       pyc_paths,
         "size_bytes": pyc_size,
@@ -388,11 +396,23 @@ def manage_user_cache() -> None:
         "exists":     bool(pyc_paths),
         "is_list":    True,
     }
+    
+    # Broken Symlinks recursive scan
+    dead_links, _ = _find_recursive_targets(home, "broken_symlinks")
+    results["Broken System Symlinks (Dead)    "] = {
+        "path":       dead_links,
+        "size_bytes": 0,
+        "size_fmt":   f"{len(dead_links)} links",
+        "exists":     bool(dead_links),
+        "is_list":    True,
+    }
+    
     total = print_scan_table(results, title=f"Target Profile: {CYAN}{home}{RESET}")
-    if total == 0:
+    if total == 0 and not dead_links:
         center_print(f"{GREEN}  [✓] Clean: No cache clutter detected.{RESET}")
         wait_for_enter()
         return
+        
     center_print(f"{RED}  [!] Warning: Deletion is permanent and cannot be undone.{RESET}")
     if ask_yes_no(f"{YELLOW}[?] Wipe all listed profile caches?{RESET}"):
         print()
@@ -402,8 +422,9 @@ def manage_user_cache() -> None:
             if not info["exists"]:
                 continue
             targets = info["path"] if info.get("is_list") else [info["path"]]
+            delete_root = info.get("is_list", False)
             for t in targets:
-                delete_path_content(Path(t), delete_root=info.get("is_list", False))
+                delete_path_content(Path(t), delete_root=delete_root)
             center_print(f"    [{GREEN}✓{RESET}]  {label.strip()}")
         print()
         center_print(f"{GREEN}  [✓] Done: User profile scrubbed successfully.{RESET}")
@@ -422,7 +443,6 @@ def manage_system_cache() -> None:
         return
     paths = {
         "APT Package Archives             ": "/var/cache/apt/archives",
-        "Systemd Journal Logs             ": "/var/log/journal",
         "Manual Page Cache                ": "/var/cache/man",
         "Apache2 Cache                    ": "/var/cache/apache2",
         "Application Info Cache           ": "/var/cache/app-info",
@@ -444,22 +464,99 @@ def manage_system_cache() -> None:
         wait_for_enter()
         return
     print()
-    center_print(f"{CYAN}  [1/3] Pruning APT database...{RESET}")
+    center_print(f"{CYAN}  [1/2] Pruning APT database...{RESET}")
     _run(['apt-get', 'clean'], True)
     _run(['apt-get', 'autoremove', '-y'], True)
     center_print(f"    [{GREEN}✓{RESET}]  APT cleanup complete")
 
-    center_print(f"{CYAN}  [2/3] Vacuuming journal logs (last 24h)...{RESET}")
-    _run(['journalctl', '--vacuum-time=1d'], True)
-    center_print(f"    [{GREEN}✓{RESET}]  Journal vacuum complete")
-
-    center_print(f"{CYAN}  [3/3] Purging remaining cache targets...{RESET}")
+    center_print(f"{CYAN}  [2/2] Purging remaining cache targets...{RESET}")
     for label, info in results.items():
-        if info["exists"] and "APT" not in label and "Journal" not in label:
+        if info["exists"] and "APT" not in label:
             delete_path_content(info["path"], delete_root=False)
             center_print(f"    [{GREEN}✓{RESET}]  {label.strip()}")
     print()
     center_print(f"{GREEN}  [✓] Done: System cache scrubbed successfully.{RESET}")
+    wait_for_enter()
+
+
+def manage_orphaned_packages() -> None:
+    clear_screen()
+    header("Orphaned Package Discovery")
+    if not HAS_SUDO_PERM:
+        center_print(f"{RED}  [✗] Error: Sudo privileges required.{RESET}")
+        wait_for_enter()
+        return
+    center_print(f"{CYAN}  [*] Querying APT for redundant dependencies...{RESET}")
+    print()
+    try:
+        out = subprocess.check_output(["sudo", "apt-get", "autoremove", "--dry-run"], text=True)
+    except Exception:
+        out = ""
+    orphans = []
+    capture = False
+    for line in out.splitlines():
+        if "The following packages will be REMOVED:" in line:
+            capture = True
+            continue
+        if capture:
+            if line.startswith(" ") or line.strip() == "":
+                pkgs = line.strip().split()
+                if pkgs: orphans.extend(pkgs)
+            else:
+                break
+    if not orphans:
+        center_print(f"{GREEN}  [✓] No orphaned packages identified.{RESET}")
+        wait_for_enter()
+        return
+    center_print(f"{YELLOW}  [!] Identified {len(orphans)} orphaned packages:{RESET}")
+    print()
+    for pkg in sorted(orphans):
+        center_print(f"    {DIM}→{RESET}  {pkg}")
+    print()
+    if ask_yes_no(f"{YELLOW}[?] Purge all listed orphaned dependencies?{RESET}"):
+        print()
+        center_print(f"{CYAN}  [*] Executing systemic purge...{RESET}")
+        if _run(['apt-get', 'autoremove', '-y'], True):
+            center_print(f"{GREEN}  [✓] Success: System is now free of orphaned artifacts.{RESET}")
+        else:
+            center_print(f"{RED}  [✗] Failure: Purge routine encountered an error.{RESET}")
+    else:
+        print()
+        center_print(f"{YELLOW}  [-] Aborted: No packages were removed.{RESET}")
+    wait_for_enter()
+
+
+def manage_large_files() -> None:
+    clear_screen()
+    header("Large File Radar")
+    home = get_user_home()
+    center_print(f"{CYAN}  [*] Scanning {home} for heavy consumers (>100MB)...{RESET}")
+    print()
+    skip = {'.cache', '.local', '.git', 'venv', '.venv', 'node_modules'}
+    found_files = []
+    for dirpath, dirnames, filenames in os.walk(home):
+        dirnames[:] = [d for d in dirnames if d not in skip and not d.startswith('.')]
+        for f in filenames:
+            fp = Path(dirpath) / f
+            try:
+                if not fp.is_symlink():
+                    size = fp.stat().st_size
+                    if size > 100 * 1024 * 1024:
+                        found_files.append((fp, size))
+            except OSError:
+                pass
+    if not found_files:
+        center_print(f"{GREEN}  [✓] No files larger than 100MB found.{RESET}")
+        wait_for_enter()
+        return
+    found_files.sort(key=lambda x: x[1], reverse=True)
+    top_5 = found_files[:5]
+    center_print(f"{YELLOW}  [!] Top {len(top_5)} Heavy Consumers identified:{RESET}")
+    print()
+    for fp, size in top_5:
+        center_print(f"    {RED}{format_size(size):<10}{RESET}  {DIM}{fp}{RESET}")
+    print()
+    center_print(f"{DIM}Note: These files are not deleted automatically. Review them manually.{RESET}")
     wait_for_enter()
 
 
@@ -505,62 +602,6 @@ def clean_snap_old_versions() -> None:
     wait_for_enter()
 
 
-def clean_all_safe_macro() -> None:
-    clear_screen()
-    header("Full Auto-Clean Macro")
-    if not HAS_SUDO_PERM:
-        center_print(f"{RED}  [✗] Error: Sudo privileges required.{RESET}")
-        wait_for_enter()
-        return
-    center_print(f"{CYAN}  [*] Running full system diagnostics...{RESET}")
-    print()
-    sys_paths = {
-        "APT Package Archives             ": "/var/cache/apt/archives",
-        "Systemd Journal Logs             ": "/var/log/journal",
-        "Manual Page Cache                ": "/var/cache/man",
-        "Apache2 Cache                    ": "/var/cache/apache2",
-        "Application Info Cache           ": "/var/cache/app-info",
-        "Software Catalog Cache           ": "/var/cache/swcatalog",
-        "Temporary Files (/tmp)           ": "/tmp",
-    }
-    results = scan_paths(sys_paths)
-    total = print_scan_table(results)
-    center_print(f"{DIM}  Note: Kernel page cache will also be dropped.{RESET}")
-    print()
-    if total == 0:
-        center_print(f"{GREEN}  [✓] System is already clean.{RESET}")
-        wait_for_enter()
-        return
-    if not ask_yes_no(f"{YELLOW}[?] Confirm full global auto-clean?{RESET}"):
-        print()
-        center_print(f"{YELLOW}  [-] Aborted: No operations were performed.{RESET}")
-        wait_for_enter()
-        return
-    print()
-    center_print(f"{CYAN}  [1/3] Cleaning APT, journals, and caches...{RESET}")
-    _run(['apt-get', 'clean'], True)
-    _run(['apt-get', 'autoremove', '-y'], True)
-    _run(['journalctl', '--vacuum-time=1d'], True)
-    for label, info in results.items():
-        if info["exists"] and "APT" not in label and "Journal" not in label:
-            delete_path_content(info["path"], False)
-    center_print(f"    [{GREEN}✓{RESET}]  APT and cache cleanup complete")
-
-    center_print(f"{CYAN}  [2/3] Dropping kernel page cache...{RESET}")
-    _run(['sync'], True)
-    subprocess.run(
-        "echo 3 | sudo tee /proc/sys/vm/drop_caches",
-        shell=True, capture_output=True
-    )
-    center_print(f"    [{GREEN}✓{RESET}]  Kernel cache drop complete")
-
-    center_print(f"{CYAN}  [3/3] Verifying completion...{RESET}")
-    center_print(f"    [{GREEN}✓{RESET}]  Verification passed")
-    print()
-    center_print(f"{GREEN}  [✓] Done: Full auto-clean completed successfully.{RESET}")
-    wait_for_enter()
-
-
 def _sync_sudo_status() -> None:
     global HAS_SUDO_PERM
     if HAS_SUDO_PERM and not check_sudo_status() and os.getuid() != 0:
@@ -584,36 +625,27 @@ def main_menu() -> None:
         _sync_sudo_status()
         clear_screen()
         app_logo()
-
         mode = f"{GREEN}{BOLD}Privileged{RESET}" if HAS_SUDO_PERM else f"{YELLOW}{BOLD}Restricted{RESET}"
         lock = f"{GREEN}[Unlocked]{RESET}" if HAS_SUDO_PERM else f"{RED}[Locked]{RESET}"
-
         center_print(f"{CYAN}  [+] Framework Status: {mode}  {DIM}|{RESET}  Privileges: {lock}{RESET}")
         print()
         _divider()
         print()
-
         center_print(f"  {GREEN}{BOLD}[1]{RESET}  Deep Scan & Purge: User Profile Cache")
-        print()
         center_print(f"  {GREEN}{BOLD}[2]{RESET}  Integrated Purge: System Engine Cache  {lock}")
-        print()
         center_print(f"  {GREEN}{BOLD}[3]{RESET}  Architectural Scrub: Remove Old Snap Revisions  {lock}")
-        print()
-        center_print(f"  {GREEN}{BOLD}[4]{RESET}  Sovereign Mode: Full Global Auto-Clean  {lock}")
-
+        center_print(f"  {GREEN}{BOLD}[4]{RESET}  Discovery: Find & Purge Orphaned Packages  {lock}")
+        center_print(f"  {GREEN}{BOLD}[5]{RESET}  Radar: Identify Top 5 Largest Home Files")
         if not HAS_SUDO_PERM:
             print()
-            center_print(f"  {DIM}[5]  Elevate Session to Sudo{RESET}")
-
+            center_print(f"  {DIM}[9]  Elevate Session to Sudo{RESET}")
         print()
         _divider()
         print()
         center_print(f"  {RED}{BOLD}[0]{RESET}  {DIM}Exit CleanX{RESET}")
         print()
-
-        valid = ["0", "1", "2", "3", "4"] + (["5"] if not HAS_SUDO_PERM else [])
+        valid = ["0", "1", "2", "3", "4", "5"] + (["9"] if not HAS_SUDO_PERM else [])
         choice = ask_choice(valid)
-
         if choice == "1":
             manage_user_cache()
         elif choice in ("2", "3", "4"):
@@ -623,18 +655,16 @@ def main_menu() -> None:
                 if ask_yes_no("[?] Authenticate Sudo right now?"):
                     if not attempt_elevation():
                         continue
-            if choice == "2":
-                manage_system_cache()
-            elif choice == "3":
-                clean_snap_old_versions()
-            elif choice == "4":
-                clean_all_safe_macro()
+            if choice == "2": manage_system_cache()
+            elif choice == "3": clean_snap_old_versions()
+            elif choice == "4": manage_orphaned_packages()
         elif choice == "5":
+            manage_large_files()
+        elif choice == "9":
             attempt_elevation()
         elif choice == "0":
             print()
             center_print(f"{GREEN}  [✓] Session terminated. Goodbye!{RESET}")
-            print()
             sys.exit(0)
 
 
@@ -644,5 +674,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print()
         center_print(f"{YELLOW}  [!] Interrupted by user (Ctrl+C).{RESET}")
-        print()
         sys.exit(0)
