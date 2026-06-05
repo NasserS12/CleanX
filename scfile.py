@@ -453,27 +453,66 @@ def manage_orphaned_packages() -> None:
 
 
 def manage_large_files() -> None:
-    clear_screen(); header("Large File Radar")
+    clear_screen(); header("Advanced Large File Radar")
+    
+    # Get user home as default
     home = get_user_home()
-    center_print(f"{CYAN}  [*] Scanning {home} for heavy consumers (>100MB)...{RESET}\n")
+    
+    center_print(f"{YELLOW}  [?] Enter minimum file size in MB (default: 100):{RESET}")
+    c = cols()
+    try:
+        size_input = input(" " * max(0, c // 2 - 3) + "  ➜  ").strip()
+        min_size_mb = int(size_input) if size_input else 100
+    except ValueError:
+        min_size_mb = 100
+        center_print(f"{RED}  [!] Invalid input. Using default 100MB.{RESET}")
+        time.sleep(1)
+
+    center_print(f"{YELLOW}  [?] Enter scan path (default: {home}):{RESET}")
+    path_input = input(" " * max(0, c // 2 - 3) + "  ➜  ").strip()
+    scan_path = Path(path_input) if path_input else home
+    
+    if not scan_path.exists() or not scan_path.is_dir():
+        center_print(f"{RED}  [!] Path does not exist or is not a directory. Using {home}.{RESET}")
+        scan_path = home
+        time.sleep(1.5)
+
+    center_print(f"{CYAN}  [*] Scanning {scan_path} for files > {min_size_mb}MB...{RESET}\n")
+    
     skip = {'.cache', '.local', '.git', 'venv', '.venv', 'node_modules'}
     found_files = []
-    for dirpath, dirnames, filenames in os.walk(home):
-        dirnames[:] = [d for d in dirnames if d not in skip and not d.startswith('.')]
-        for f in filenames:
-            fp = Path(dirpath) / f
-            try:
-                if not fp.is_symlink():
-                    sz = fp.stat().st_size
-                    if sz > 100 * 1024 * 1024: found_files.append((fp, sz))
-            except OSError: pass
+    min_size_bytes = min_size_mb * 1024 * 1024
+
+    try:
+        for dirpath, dirnames, filenames in os.walk(scan_path):
+            # Prune skipped directories
+            dirnames[:] = [d for d in dirnames if d not in skip and not d.startswith('.')]
+            for f in filenames:
+                fp = Path(dirpath) / f
+                try:
+                    if not fp.is_symlink():
+                        sz = fp.stat().st_size
+                        if sz > min_size_bytes:
+                            found_files.append((fp, sz))
+                except (OSError, PermissionError):
+                    pass
+    except Exception as e:
+        center_print(f"{RED}  [!] Error during scan: {e}{RESET}")
+
     if not found_files:
-        center_print(f"{GREEN}  [✓] No files larger than 100MB found.{RESET}"); wait_for_enter(); return
+        center_print(f"{GREEN}  [✓] No files larger than {min_size_mb}MB found in {scan_path}.{RESET}")
+        wait_for_enter(); return
+
     found_files.sort(key=lambda x: x[1], reverse=True)
-    top_5 = found_files[:5]
-    center_print(f"{YELLOW}  [!] Top {len(top_5)} Heavy Consumers identified:{RESET}\n")
-    for fp, size in top_5: center_print(f"    {RED}{format_size(size):<10}{RESET}  {DIM}{fp}{RESET}")
-    print(); center_print(f"{DIM}Note: These files are not deleted automatically. Review them manually.{RESET}")
+    display_count = min(len(found_files), 10)
+    
+    center_print(f"{YELLOW}  [!] Top {display_count} Heavy Consumers identified:{RESET}\n")
+    for fp, size in found_files[:display_count]:
+        center_print(f"    {RED}{format_size(size):<10}{RESET}  {DIM}{fp}{RESET}")
+    
+    print()
+    center_print(f"{DIM}Found a total of {len(found_files)} files meeting the criteria.{RESET}")
+    center_print(f"{DIM}Note: These files are not deleted automatically. Review them manually.{RESET}")
     wait_for_enter()
 
 
