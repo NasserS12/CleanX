@@ -18,6 +18,7 @@ DIM    = "\033[2m"
 RESET  = "\033[0m"
 
 HAS_SUDO_PERM: bool = False
+IS_DRY_RUN: bool = False
 
 
 @contextmanager
@@ -140,13 +141,19 @@ def ask_yes_no(prompt: str, default_no: bool = True) -> bool:
         print("\033[A\r\033[K" * 4, end="", flush=True)
 
 
-def ask_choice() -> str:
+def ask_choice(options: list[str]) -> str:
     _flush_stdin()
-    try:
-        c = cols()
-        return input(" " * max(0, c // 2 - 3) + "  ➜  ").strip()
-    except (KeyboardInterrupt, EOFError):
-        return "0"
+    while True:
+        try:
+            c = cols()
+            raw = input(" " * max(0, c // 2 - 3) + "  ➜  ").strip()
+            if raw in options:
+                return raw
+            center_print(f"{RED}  [!] Operational mismatch: '{raw}' is not valid.{RESET}")
+            time.sleep(1.2)
+            print("\033[A\r\033[K" * 2, end="", flush=True)
+        except (KeyboardInterrupt, EOFError):
+            return "0"
 
 
 def format_size(b: int) -> str:
@@ -228,6 +235,9 @@ def print_described_table(targets: list[dict], title: str = "") -> int:
 def _run(cmd: list[str], use_sudo: bool = False) -> bool:
     if use_sudo and cmd[0] != 'sudo':
         cmd = ['sudo'] + cmd
+    if IS_DRY_RUN:
+        center_print(f"    {DIM}[DRY RUN] Would execute: {' '.join(cmd)}{RESET}")
+        return True
     try:
         r = subprocess.run(cmd, capture_output=True, timeout=60)
         return r.returncode == 0
@@ -237,6 +247,10 @@ def _run(cmd: list[str], use_sudo: bool = False) -> bool:
 
 def delete_path_content(path: Path, delete_root: bool = False) -> bool:
     if not path.exists(): return True
+    if IS_DRY_RUN:
+        target = "file" if path.is_file() else "directory"
+        center_print(f"    {DIM}[DRY RUN] Would delete {target}: {path}{RESET}")
+        return True
     sudo = check_sudo_status()
     try:
         if path.is_file() or path.is_symlink():
@@ -373,15 +387,20 @@ def manage_user_cache() -> None:
     total = print_described_table(results, title=f"Target Profile: {CYAN}{home}{RESET}")
     if total == 0 and not any(r["label"] == "Broken System Symlinks" and r["exists"] for r in results):
         center_print(f"{GREEN}  [✓] Clean: No cache clutter detected.{RESET}"); wait_for_enter(); return
-    center_print(f"{RED}  [!] WARNING: Purge is PERMANENT. Files will NOT go to Trash.{RESET}")
-    if ask_yes_no(f"{YELLOW}  [?] Wipe all listed profile caches?{RESET}"):
-        print(); center_print(f"{CYAN}  [*] Erasing files...{RESET}")
+    
+    warning_mode = "PURGE IS PERMANENT" if not IS_DRY_RUN else "DRY RUN ACTIVE"
+    center_print(f"{RED}  [!] WARNING: {warning_mode}. Files will NOT go to Trash.{RESET}")
+    
+    prompt = "Wipe all listed profile caches?" if not IS_DRY_RUN else "Simulate profile cache wipe?"
+    if ask_yes_no(f"{YELLOW}  [?] {prompt}{RESET}"):
+        print(); center_print(f"{CYAN}  [*] {'Erasing' if not IS_DRY_RUN else 'Simulating erasure of'} files...{RESET}")
         for r in results:
             if r["exists"]:
                 targets = r["path"] if r.get("is_list") else [r["path"]]
                 for t in targets: delete_path_content(Path(t), delete_root=r.get("is_list", False))
                 center_print(f"    [{GREEN}✓{RESET}]  {r['label']}")
-        print(); center_print(f"{GREEN}  [✓] Done: User profile scrubbed successfully.{RESET}")
+        msg = "User profile scrubbed successfully." if not IS_DRY_RUN else "Dry run complete. No files were removed."
+        print(); center_print(f"{GREEN}  [✓] Done: {msg}{RESET}")
     else: print(); center_print(f"{YELLOW}  [-] Aborted: No data was removed.{RESET}")
     wait_for_enter()
 
@@ -406,8 +425,12 @@ def manage_system_cache() -> None:
     total = print_described_table(results)
     if total == 0:
         center_print(f"{GREEN}  [✓] Clean: System engine caches are empty.{RESET}"); wait_for_enter(); return
-    center_print(f"{RED}  [!] WARNING: Purge is PERMANENT. System files will be lost.{RESET}")
-    if not ask_yes_no(f"{YELLOW}  [?] Purge all listed systemic core engines and cache layouts?{RESET}"):
+    
+    warning_mode = "PURGE IS PERMANENT" if not IS_DRY_RUN else "DRY RUN ACTIVE"
+    center_print(f"{RED}  [!] WARNING: {warning_mode}. System files will be lost.{RESET}")
+    
+    prompt = "Purge all listed systemic core engines and cache layouts?" if not IS_DRY_RUN else "Simulate systemic purge?"
+    if not ask_yes_no(f"{YELLOW}  [?] {prompt}{RESET}"):
         print(); center_print(f"{YELLOW}  [-] Aborted: Core systemic architecture preserved safely.{RESET}"); wait_for_enter(); return
     print(); center_print(f"{CYAN}  [1/2] Pruning systemic package databases...{RESET}")
     _run(['apt-get', 'clean'], True); _run(['apt-get', 'autoremove', '-y'], True)
@@ -418,7 +441,9 @@ def manage_system_cache() -> None:
             targets = r["path"] if r.get("is_list") else [r["path"]]
             for t in targets: delete_path_content(Path(t), delete_root=False)
             center_print(f"    [{GREEN}✓{RESET}]  {r['label']}")
-    print(); center_print(f"{GREEN}  [✓] Success: System structural caches purged successfully.{RESET}")
+    
+    msg = "System structural caches purged successfully." if not IS_DRY_RUN else "Dry run complete. No system files were removed."
+    print(); center_print(f"{GREEN}  [✓] Success: {msg}{RESET}")
     wait_for_enter()
 
 
@@ -444,9 +469,13 @@ def manage_orphaned_packages() -> None:
     center_print(f"{YELLOW}  [!] Identified {len(orphans)} orphaned packages:{RESET}\n")
     for pkg in sorted(orphans): center_print(f"    {DIM}→{RESET}  {pkg}")
     print()
-    if ask_yes_no(f"{YELLOW}  [?] Purge all listed orphaned dependencies?{RESET}"):
+    
+    prompt = "Purge all listed orphaned dependencies?" if not IS_DRY_RUN else "Simulate orphaned package purge?"
+    if ask_yes_no(f"{YELLOW}  [?] {prompt}{RESET}"):
         print(); center_print(f"{CYAN}  [*] Executing systemic purge...{RESET}")
-        if _run(['apt-get', 'autoremove', '-y'], True): center_print(f"{GREEN}  [✓] Success: System free of orphaned artifacts.{RESET}")
+        if _run(['apt-get', 'autoremove', '-y'], True): 
+            msg = "System free of orphaned artifacts." if not IS_DRY_RUN else "Dry run complete. No packages were removed."
+            center_print(f"{GREEN}  [✓] Success: {msg}{RESET}")
         else: center_print(f"{RED}  [✗] Failure: Purge routine encountered an error.{RESET}")
     else: print(); center_print(f"{YELLOW}  [-] Aborted: No packages were removed.{RESET}")
     wait_for_enter()
@@ -454,39 +483,95 @@ def manage_orphaned_packages() -> None:
 
 def manage_large_files() -> None:
     clear_screen(); header("Advanced Large File Radar")
-    
-    # Get user home as default
     home = get_user_home()
     
-    center_print(f"{YELLOW}  [?] Enter minimum file size in MB (default: 100):{RESET}")
-    c = cols()
-    try:
-        size_input = input(" " * max(0, c // 2 - 3) + "  ➜  ").strip()
-        min_size_mb = int(size_input) if size_input else 100
-    except ValueError:
-        min_size_mb = 100
-        center_print(f"{RED}  [!] Invalid input. Using default 100MB.{RESET}")
-        time.sleep(1)
+    # Strict Size Validation Loop with Unit Support and Sanity Cap
+    while True:
+        center_print(f"{YELLOW}  [?] Enter minimum size (e.g., 500MB, 2GB, 1TB) [default: 100MB]:{RESET}")
+        c = cols()
+        try:
+            size_input = input(" " * max(0, c // 2 - 3) + "  ➜  ").strip().upper()
+            if not size_input:
+                min_size_bytes = 100 * 1024 * 1024
+                break
+            
+            # Regex to parse number and unit
+            match = re.match(r"^(\d+\.?\d*)\s*([KMGT]B|[KMGT])?$", size_input)
+            if not match: raise ValueError
+            
+            val = float(match.group(1))
+            unit = match.group(2) if match.group(2) else "MB"
+            
+            multipliers = {
+                "KB": 1024, "K": 1024,
+                "MB": 1024**2, "M": 1024**2,
+                "GB": 1024**3, "G": 1024**3,
+                "TB": 1024**4, "T": 1024**4,
+            }
+            
+            min_size_bytes = int(val * multipliers.get(unit, 1024**2))
+            
+            # Sanity Cap: 10 TB
+            if min_size_bytes > 10 * 1024**4:
+                center_print(f"{RED}  [!] Input too large. Max limit is 10TB.{RESET}")
+                time.sleep(1.2)
+                print("\033[A\r\033[K" * 4, end="", flush=True)
+                continue
+            
+            if min_size_bytes < 0: raise ValueError
+            break
+        except KeyboardInterrupt:
+            print(); return
+        except (ValueError, EOFError):
+            center_print(f"{RED}  [!] Please enter a valid size (e.g., 100MB, 1.5GB).{RESET}")
+            time.sleep(1.2)
+            print("\033[A\r\033[K" * 4, end="", flush=True)
 
-    center_print(f"{YELLOW}  [?] Enter scan path (default: {home}):{RESET}")
-    path_input = input(" " * max(0, c // 2 - 3) + "  ➜  ").strip()
-    scan_path = Path(path_input) if path_input else home
-    
-    if not scan_path.exists() or not scan_path.is_dir():
-        center_print(f"{RED}  [!] Path does not exist or is not a directory. Using {home}.{RESET}")
-        scan_path = home
-        time.sleep(1.5)
+    # Strict Path Validation Loop
+    while True:
+        center_print(f"{YELLOW}  [?] Enter scan path (default: {home}):{RESET}")
+        c = cols()
+        try:
+            path_input = input(" " * max(0, c // 2 - 3) + "  ➜  ").strip()
+            if not path_input:
+                scan_path = home
+                break
+            p = Path(path_input).expanduser()
+            if p.exists() and p.is_dir():
+                scan_path = p
+                break
+            else:
+                center_print(f"{RED}  [!] Path does not exist or is not a directory.{RESET}")
+        except KeyboardInterrupt:
+            print(); return
+        except (EOFError):
+            scan_path = home
+            break
+        time.sleep(1.2)
+        print("\033[A\r\033[K" * 4, end="", flush=True)
 
-    center_print(f"{CYAN}  [*] Scanning {scan_path} for files > {min_size_mb}MB...{RESET}\n")
+    center_print(f"{CYAN}  [*] Scanning {scan_path} for files > {format_size(min_size_bytes)}...{RESET}\n")
     
-    skip = {'.cache', '.local', '.git', 'venv', '.venv', 'node_modules'}
+    # Resolve path for accurate system path detection
+    abs_path = scan_path.expanduser().resolve()
+    is_system_path = any(str(abs_path).startswith(p) for p in ['/var', '/root', '/etc', '/boot', '/usr'])
+    if is_system_path and not HAS_SUDO_PERM:
+        center_print(f"{YELLOW}  [!] Scanning a system path without Sudo. Results may be incomplete.{RESET}")
+        print()
+
+    skip = {'.cache', '.local', '.git', 'venv', '.venv', 'node_modules', 'Downloads'}
     found_files = []
-    min_size_bytes = min_size_mb * 1024 * 1024
+    skipped_dirs = 0
+
+    def on_error(err: OSError):
+        nonlocal skipped_dirs
+        skipped_dirs += 1
 
     try:
-        for dirpath, dirnames, filenames in os.walk(scan_path):
+        for dirpath, dirnames, filenames in os.walk(scan_path, onerror=on_error):
             # Prune skipped directories
             dirnames[:] = [d for d in dirnames if d not in skip and not d.startswith('.')]
+            
             for f in filenames:
                 fp = Path(dirpath) / f
                 try:
@@ -500,7 +585,9 @@ def manage_large_files() -> None:
         center_print(f"{RED}  [!] Error during scan: {e}{RESET}")
 
     if not found_files:
-        center_print(f"{GREEN}  [✓] No files larger than {min_size_mb}MB found in {scan_path}.{RESET}")
+        center_print(f"{GREEN}  [✓] No files larger than {format_size(min_size_bytes)} found in {scan_path}.{RESET}")
+        if skipped_dirs > 0:
+            center_print(f"{DIM}      ({skipped_dirs} directories were skipped due to permissions){RESET}")
         wait_for_enter(); return
 
     found_files.sort(key=lambda x: x[1], reverse=True)
@@ -512,6 +599,8 @@ def manage_large_files() -> None:
     
     print()
     center_print(f"{DIM}Found a total of {len(found_files)} files meeting the criteria.{RESET}")
+    if skipped_dirs > 0:
+        center_print(f"{DIM}Notice: {skipped_dirs} directories were inaccessible and skipped.{RESET}")
     center_print(f"{DIM}Note: These files are not deleted automatically. Review them manually.{RESET}")
     wait_for_enter()
 
@@ -536,19 +625,23 @@ def clean_snap_old_versions() -> None:
         center_print(f"{GREEN}  [✓] No old Snap revisions found.{RESET}"); wait_for_enter(); return
     for name, rev in disabled: center_print(f"  {DIM}→{RESET}  {name:<28}  {DIM}[rev: {rev}]{RESET}")
     print()
-    if ask_yes_no(f"{YELLOW}  [?] Permanently remove these disabled revisions?{RESET}"):
-        print(); center_print(f"{CYAN}  [*] Removing revisions...{RESET}\n")
+    
+    prompt = "Permanently remove these disabled revisions?" if not IS_DRY_RUN else "Simulate Snap revision removal?"
+    if ask_yes_no(f"{YELLOW}  [?] {prompt}{RESET}"):
+        print(); center_print(f"{CYAN}  [*] {'Removing' if not IS_DRY_RUN else 'Simulating removal of'} revisions...{RESET}\n")
         for n, r in disabled:
             ok = _run(['snap', 'remove', n, f'--revision={r}'], True)
             status = f"{GREEN}✓" if ok else f"{RED}✗"
             center_print(f"    [{status}{RESET}]  {n} (rev {r})")
-        print(); center_print(f"{GREEN}  [✓] Done: Old revisions removed.{RESET}")
+        msg = "Old revisions removed." if not IS_DRY_RUN else "Dry run complete. No Snaps were modified."
+        print(); center_print(f"{GREEN}  [✓] Done: {msg}{RESET}")
     else: print(); center_print(f"{YELLOW}  [-] Aborted: No revisions were removed.{RESET}")
     wait_for_enter()
 
 
 def main_menu() -> None:
     global HAS_SUDO_PERM
+    global IS_DRY_RUN
     if check_sudo_status() or os.getuid() == 0:
         HAS_SUDO_PERM = True
         clear_screen(); app_logo()
@@ -564,19 +657,28 @@ def main_menu() -> None:
         clear_screen(); app_logo()
         mode = f"{GREEN}{BOLD}Privileged{RESET}" if HAS_SUDO_PERM else f"{YELLOW}{BOLD}Restricted{RESET}"
         lock = f"{GREEN}[Unlocked]{RESET}" if HAS_SUDO_PERM else f"{RED}[Locked]{RESET}"
-        center_print(f"{CYAN}  [+] Framework Status: {mode}  {DIM}|{RESET}  Privileges: {lock}{RESET}")
+        dry  = f"{YELLOW}{BOLD}[DRY RUN ACTIVE]{RESET}" if IS_DRY_RUN else f"{DIM}[Real Mode]{RESET}"
+        
+        center_print(f"{CYAN}  [+] Framework Status: {mode}  {DIM}|{RESET}  Privileges: {lock}  {DIM}|{RESET}  Mode: {dry}")
         print(); _divider(); print()
         center_print(f"  {GREEN}{BOLD}[1]{RESET}  Deep Scan & Purge: User Profile Cache")
         center_print(f"  {GREEN}{BOLD}[2]{RESET}  Integrated Purge: System Engine Cache  {lock}")
         center_print(f"  {GREEN}{BOLD}[3]{RESET}  Architectural Scrub: Remove Old Snap Revisions  {lock}")
         center_print(f"  {GREEN}{BOLD}[4]{RESET}  Discovery: Find & Purge Orphaned Packages  {lock}")
-        center_print(f"  {GREEN}{BOLD}[5]{RESET}  Radar: Identify Top 5 Largest Home Files")
+        center_print(f"  {GREEN}{BOLD}[5]{RESET}  Radar: Advanced Deep Search for Large Files")
+        
+        dry_color = YELLOW if IS_DRY_RUN else DIM
+        dry_label = "Disable" if IS_DRY_RUN else "Enable"
+        print()
+        center_print(f"  {dry_color}{BOLD}[8]{RESET}  {dry_label} Dry Run Mode (No deletion)")
+        
         if not HAS_SUDO_PERM:
-            print(); center_print(f"  {DIM}[9]  Elevate Session to Sudo{RESET}")
+            center_print(f"  {DIM}[9]  Elevate Session to Sudo{RESET}")
         print(); _divider(); print()
         center_print(f"  {RED}{BOLD}[0]{RESET}  {DIM}Exit CleanX{RESET}")
         print()
-        choice = ask_choice()
+        valid = ["0", "1", "2", "3", "4", "5", "8"] + (["9"] if not HAS_SUDO_PERM else [])
+        choice = ask_choice(valid)
         if choice == "1": manage_user_cache()
         elif choice in ("2", "3", "4"):
             if not HAS_SUDO_PERM:
@@ -587,6 +689,10 @@ def main_menu() -> None:
             elif choice == "3": clean_snap_old_versions()
             elif choice == "4": manage_orphaned_packages()
         elif choice == "5": manage_large_files()
+        elif choice == "8":
+            IS_DRY_RUN = not IS_DRY_RUN
+            center_print(f"{YELLOW}  [*] Dry Run Mode {'Enabled' if IS_DRY_RUN else 'Disabled'}.{RESET}")
+            time.sleep(1.0)
         elif choice == "9": attempt_elevation()
         elif choice == "0":
             print(); center_print(f"{GREEN}  [✓] Session terminated. Goodbye Nasser!{RESET}")
