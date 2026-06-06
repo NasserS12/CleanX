@@ -6,6 +6,7 @@ import time
 import re
 from contextlib import contextmanager
 from pathlib import Path
+from datetime import datetime, timedelta
 
 
 GREEN  = "\033[92m"
@@ -482,10 +483,9 @@ def manage_orphaned_packages() -> None:
 
 
 def manage_large_files() -> None:
-    clear_screen(); header("Advanced Large File Radar")
+    clear_screen(); header("Advanced Large & Aged File Radar")
     home = get_user_home()
     
-    # Strict Size Validation Loop with Unit Support and Sanity Cap
     while True:
         center_print(f"{YELLOW}  [?] Enter minimum size (e.g., 500MB, 2GB, 1TB) [default: 100MB]:{RESET}")
         c = cols()
@@ -494,40 +494,37 @@ def manage_large_files() -> None:
             if not size_input:
                 min_size_bytes = 100 * 1024 * 1024
                 break
-            
-            # Regex to parse number and unit
             match = re.match(r"^(\d+\.?\d*)\s*([KMGT]B|[KMGT])?$", size_input)
             if not match: raise ValueError
-            
             val = float(match.group(1))
             unit = match.group(2) if match.group(2) else "MB"
-            
-            multipliers = {
-                "KB": 1024, "K": 1024,
-                "MB": 1024**2, "M": 1024**2,
-                "GB": 1024**3, "G": 1024**3,
-                "TB": 1024**4, "T": 1024**4,
-            }
-            
+            multipliers = {"KB": 1024, "K": 1024, "MB": 1024**2, "M": 1024**2, "GB": 1024**3, "G": 1024**3, "TB": 1024**4, "T": 1024**4}
             min_size_bytes = int(val * multipliers.get(unit, 1024**2))
-            
-            # Sanity Cap: 10 TB
             if min_size_bytes > 10 * 1024**4:
                 center_print(f"{RED}  [!] Input too large. Max limit is 10TB.{RESET}")
-                time.sleep(1.2)
-                print("\033[A\r\033[K" * 4, end="", flush=True)
-                continue
-            
-            if min_size_bytes < 0: raise ValueError
+                time.sleep(1.2); print("\033[A\r\033[K" * 4, end="", flush=True); continue
             break
-        except KeyboardInterrupt:
-            print(); return
+        except KeyboardInterrupt: print(); return
         except (ValueError, EOFError):
             center_print(f"{RED}  [!] Please enter a valid size (e.g., 100MB, 1.5GB).{RESET}")
-            time.sleep(1.2)
-            print("\033[A\r\033[K" * 4, end="", flush=True)
+            time.sleep(1.2); print("\033[A\r\033[K" * 4, end="", flush=True)
 
-    # Strict Path Validation Loop
+    while True:
+        center_print(f"{YELLOW}  [?] Enter minimum age in days (press Enter to skip):{RESET}")
+        c = cols()
+        try:
+            age_input = input(" " * max(0, c // 2 - 3) + "  ➜  ").strip()
+            if not age_input:
+                min_age_days = 0
+                break
+            min_age_days = int(age_input)
+            if min_age_days < 0: raise ValueError
+            break
+        except KeyboardInterrupt: print(); return
+        except (ValueError, EOFError):
+            center_print(f"{RED}  [!] Please enter a valid number of days.{RESET}")
+            time.sleep(1.2); print("\033[A\r\033[K" * 4, end="", flush=True)
+
     while True:
         center_print(f"{YELLOW}  [?] Enter scan path (default: {home}):{RESET}")
         c = cols()
@@ -542,26 +539,24 @@ def manage_large_files() -> None:
                 break
             else:
                 center_print(f"{RED}  [!] Path does not exist or is not a directory.{RESET}")
-        except KeyboardInterrupt:
-            print(); return
+        except KeyboardInterrupt: print(); return
         except (EOFError):
             scan_path = home
             break
-        time.sleep(1.2)
-        print("\033[A\r\033[K" * 4, end="", flush=True)
+        time.sleep(1.2); print("\033[A\r\033[K" * 4, end="", flush=True)
 
-    center_print(f"{CYAN}  [*] Scanning {scan_path} for files > {format_size(min_size_bytes)}...{RESET}\n")
+    age_str = f" and > {min_age_days} days old" if min_age_days > 0 else ""
+    center_print(f"{CYAN}  [*] Scanning {scan_path} for files > {format_size(min_size_bytes)}{age_str}...{RESET}\n")
     
-    # Resolve path for accurate system path detection
     abs_path = scan_path.expanduser().resolve()
     is_system_path = any(str(abs_path).startswith(p) for p in ['/var', '/root', '/etc', '/boot', '/usr'])
     if is_system_path and not HAS_SUDO_PERM:
-        center_print(f"{YELLOW}  [!] Scanning a system path without Sudo. Results may be incomplete.{RESET}")
-        print()
+        center_print(f"{YELLOW}  [!] Scanning a system path without Sudo. Results may be incomplete.{RESET}\n")
 
     skip = {'.cache', '.local', '.git', 'venv', '.venv', 'node_modules', 'Downloads'}
     found_files = []
     skipped_dirs = 0
+    now = datetime.now()
 
     def on_error(err: OSError):
         nonlocal skipped_dirs
@@ -569,23 +564,26 @@ def manage_large_files() -> None:
 
     try:
         for dirpath, dirnames, filenames in os.walk(scan_path, onerror=on_error):
-            # Prune skipped directories
             dirnames[:] = [d for d in dirnames if d not in skip and not d.startswith('.')]
-            
             for f in filenames:
                 fp = Path(dirpath) / f
                 try:
                     if not fp.is_symlink():
-                        sz = fp.stat().st_size
-                        if sz > min_size_bytes:
-                            found_files.append((fp, sz))
+                        stat = fp.stat()
+                        sz = stat.st_size
+                        mtime = datetime.fromtimestamp(stat.st_mtime)
+                        atime = datetime.fromtimestamp(stat.st_atime)
+                        mod_age = (now - mtime).days
+                        acc_age = (now - atime).days
+                        if sz > min_size_bytes and mod_age >= min_age_days:
+                            found_files.append((fp, sz, mod_age, acc_age))
                 except (OSError, PermissionError):
                     pass
     except Exception as e:
         center_print(f"{RED}  [!] Error during scan: {e}{RESET}")
 
     if not found_files:
-        center_print(f"{GREEN}  [✓] No files larger than {format_size(min_size_bytes)} found in {scan_path}.{RESET}")
+        center_print(f"{GREEN}  [✓] No files matching the criteria found in {scan_path}.{RESET}")
         if skipped_dirs > 0:
             center_print(f"{DIM}      ({skipped_dirs} directories were skipped due to permissions){RESET}")
         wait_for_enter(); return
@@ -594,8 +592,10 @@ def manage_large_files() -> None:
     display_count = min(len(found_files), 10)
     
     center_print(f"{YELLOW}  [!] Top {display_count} Heavy Consumers identified:{RESET}\n")
-    for fp, size in found_files[:display_count]:
-        center_print(f"    {RED}{format_size(size):<10}{RESET}  {DIM}{fp}{RESET}")
+    for fp, size, mod_age, acc_age in found_files[:display_count]:
+        age_label = f"{DIM}Modified: {mod_age}d{RESET}"
+        idle_label = f"{YELLOW}Idle: {acc_age}d{RESET}"
+        center_print(f"    {RED}{format_size(size):<10}{RESET}  {age_label:<15} {idle_label:<15}  {DIM}{fp}{RESET}")
     
     print()
     center_print(f"{DIM}Found a total of {len(found_files)} files meeting the criteria.{RESET}")
@@ -665,7 +665,7 @@ def main_menu() -> None:
         center_print(f"  {GREEN}{BOLD}[2]{RESET}  Integrated Purge: System Engine Cache  {lock}")
         center_print(f"  {GREEN}{BOLD}[3]{RESET}  Architectural Scrub: Remove Old Snap Revisions  {lock}")
         center_print(f"  {GREEN}{BOLD}[4]{RESET}  Discovery: Find & Purge Orphaned Packages  {lock}")
-        center_print(f"  {GREEN}{BOLD}[5]{RESET}  Radar: Advanced Deep Search for Large Files")
+        center_print(f"  {GREEN}{BOLD}[5]{RESET}  Radar: Advanced Deep Search for Large & Aged Files")
         
         dry_color = YELLOW if IS_DRY_RUN else DIM
         dry_label = "Disable" if IS_DRY_RUN else "Enable"
