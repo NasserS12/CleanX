@@ -486,6 +486,7 @@ def manage_large_files() -> None:
     clear_screen(); header("Advanced Large & Aged File Radar")
     home = get_user_home()
     
+    # 1. Size Validation Loop
     while True:
         center_print(f"{YELLOW}  [?] Enter minimum size (e.g., 500MB, 2GB, 1TB) [default: 100MB]:{RESET}")
         c = cols()
@@ -509,6 +510,7 @@ def manage_large_files() -> None:
             center_print(f"{RED}  [!] Please enter a valid size (e.g., 100MB, 1.5GB).{RESET}")
             time.sleep(1.2); print("\033[A\r\033[K" * 4, end="", flush=True)
 
+    # 2. Age Validation Loop
     while True:
         center_print(f"{YELLOW}  [?] Enter minimum age in days (press Enter to skip):{RESET}")
         c = cols()
@@ -525,6 +527,7 @@ def manage_large_files() -> None:
             center_print(f"{RED}  [!] Please enter a valid number of days.{RESET}")
             time.sleep(1.2); print("\033[A\r\033[K" * 4, end="", flush=True)
 
+    # 3. Path Validation Loop
     while True:
         center_print(f"{YELLOW}  [?] Enter scan path (default: {home}):{RESET}")
         c = cols()
@@ -572,11 +575,10 @@ def manage_large_files() -> None:
                         stat = fp.stat()
                         sz = stat.st_size
                         mtime = datetime.fromtimestamp(stat.st_mtime)
-                        atime = datetime.fromtimestamp(stat.st_atime)
-                        mod_age = (now - mtime).days
-                        acc_age = (now - atime).days
-                        if sz > min_size_bytes and mod_age >= min_age_days:
-                            found_files.append((fp, sz, mod_age, acc_age))
+                        age_days = (now - mtime).days
+                        
+                        if sz > min_size_bytes and age_days >= min_age_days:
+                            found_files.append((fp, sz, age_days))
                 except (OSError, PermissionError):
                     pass
     except Exception as e:
@@ -592,10 +594,9 @@ def manage_large_files() -> None:
     display_count = min(len(found_files), 10)
     
     center_print(f"{YELLOW}  [!] Top {display_count} Heavy Consumers identified:{RESET}\n")
-    for fp, size, mod_age, acc_age in found_files[:display_count]:
-        age_label = f"{DIM}Modified: {mod_age}d{RESET}"
-        idle_label = f"{YELLOW}Idle: {acc_age}d{RESET}"
-        center_print(f"    {RED}{format_size(size):<10}{RESET}  {age_label:<15} {idle_label:<15}  {DIM}{fp}{RESET}")
+    for fp, size, age in found_files[:display_count]:
+        age_label = f"{DIM}[{age}d old]{RESET}"
+        center_print(f"    {RED}{format_size(size):<10}{RESET}  {age_label:<20}  {DIM}{fp}{RESET}")
     
     print()
     center_print(f"{DIM}Found a total of {len(found_files)} files meeting the criteria.{RESET}")
@@ -639,6 +640,27 @@ def clean_snap_old_versions() -> None:
     wait_for_enter()
 
 
+def show_dry_run_help() -> None:
+    clear_screen(); header("About Dry Run Mode")
+    center_print(f"{CYAN}{BOLD}[WHAT IS IT?]{RESET}")
+    center_print("  Dry Run is a safety simulation mode.")
+    center_print("  It allows you to test the script without risk.")
+    print()
+    center_print(f"{YELLOW}{BOLD}[HOW IT WORKS:]{RESET}")
+    center_print(f"  {GREEN}●{RESET} {BOLD}No Deletions:{RESET} Files are NOT erased from disk.")
+    center_print(f"  {GREEN}●{RESET} {BOLD}No Changes:{RESET} System commands are NOT executed.")
+    center_print(f"  {GREEN}●{RESET} {BOLD}Reporting:{RESET} It shows you exactly what WOULD happen.")
+    print()
+    center_print(f"{WHITE}{BOLD}[BENEFITS:]{RESET}")
+    center_print("  1. Safely audit how much space you can reclaim.")
+    center_print("  2. Verify that the file filters are working correctly.")
+    center_print("  3. 100% peace of mind for new users.")
+    print()
+    _divider()
+    center_print(f"{DIM}Press [8] on the main menu to toggle this mode on/off.{RESET}")
+    wait_for_enter()
+
+
 def main_menu() -> None:
     global HAS_SUDO_PERM
     global IS_DRY_RUN
@@ -671,13 +693,14 @@ def main_menu() -> None:
         dry_label = "Disable" if IS_DRY_RUN else "Enable"
         print()
         center_print(f"  {dry_color}{BOLD}[8]{RESET}  {dry_label} Dry Run Mode (No deletion)")
+        center_print(f"  {WHITE}{BOLD}[H]{RESET}  Help / About Dry Run Mode")
         
         if not HAS_SUDO_PERM:
             center_print(f"  {DIM}[9]  Elevate Session to Sudo{RESET}")
         print(); _divider(); print()
         center_print(f"  {RED}{BOLD}[0]{RESET}  {DIM}Exit CleanX{RESET}")
         print()
-        valid = ["0", "1", "2", "3", "4", "5", "8"] + (["9"] if not HAS_SUDO_PERM else [])
+        valid = ["0", "1", "2", "3", "4", "5", "8", "H", "h"] + (["9"] if not HAS_SUDO_PERM else [])
         choice = ask_choice(valid)
         if choice == "1": manage_user_cache()
         elif choice in ("2", "3", "4"):
@@ -693,6 +716,8 @@ def main_menu() -> None:
             IS_DRY_RUN = not IS_DRY_RUN
             center_print(f"{YELLOW}  [*] Dry Run Mode {'Enabled' if IS_DRY_RUN else 'Disabled'}.{RESET}")
             time.sleep(1.0)
+        elif choice.upper() == "H":
+            show_dry_run_help()
         elif choice == "9": attempt_elevation()
         elif choice == "0":
             print(); center_print(f"{GREEN}  [✓] Session terminated. Goodbye Nasser!{RESET}")
