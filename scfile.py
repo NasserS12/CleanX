@@ -640,6 +640,60 @@ def clean_snap_old_versions() -> None:
     wait_for_enter()
 
 
+def manage_journal_logs() -> None:
+    clear_screen(); header("Journalctl Log Vacuum")
+    if not HAS_SUDO_PERM:
+        center_print(f"{RED}  [✗] Error: Sudo privileges required.{RESET}"); wait_for_enter(); return
+
+    center_print(f"{CYAN}  [*] Calculating current journal size...{RESET}")
+    try:
+        out = subprocess.check_output(["sudo", "journalctl", "--disk-usage"], text=True)
+        center_print(f"  {YELLOW}{out.strip()}{RESET}")
+    except Exception: pass
+    print()
+
+    # --- New Description Guide ---
+    center_print(f"{WHITE}{BOLD}[HOW IT WORKS:]{RESET}")
+    center_print(f"  {DIM}●{RESET} {BOLD}Vacuum by Time:{RESET} Keeps recent logs and erases the old ones.")
+    center_print(f"    {DIM}(Example: '2days' keeps only the last 48 hours of history){RESET}")
+    center_print(f"  {DIM}●{RESET} {BOLD}Vacuum by Size:{RESET} Sets a maximum 'budget' for log files.")
+    center_print(f"    {DIM}(Example: '200M' deletes logs until only 200MB remains){RESET}")
+    print(); _divider(); print()
+
+    center_print(f"  {GREEN}{BOLD}[1]{RESET}  Vacuum by Time")
+    center_print(f"  {GREEN}{BOLD}[2]{RESET}  Vacuum by Size")
+    center_print(f"  {RED}{BOLD}[0]{RESET}  Cancel")
+    print()
+
+    choice = ask_choice(["0", "1", "2"])
+    if choice == "0": return
+
+    if choice == "1":
+        center_print(f"{YELLOW}  [?] Enter time limit (e.g., 2days, 1weeks):{RESET}")
+        limit = input(" " * max(0, cols() // 2 - 3) + "  ➜  ").strip()
+        if not limit: limit = "3days"
+        cmd = ["journalctl", f"--vacuum-time={limit}"]
+    else:
+        center_print(f"{YELLOW}  [?] Enter size limit (e.g., 500M, 1G):{RESET}")
+        limit = input(" " * max(0, cols() // 2 - 3) + "  ➜  ").strip()
+        if not limit: limit = "500M"
+        cmd = ["journalctl", f"--vacuum-size={limit}"]
+
+    warning_mode = "PURGE IS PERMANENT" if not IS_DRY_RUN else "DRY RUN ACTIVE"
+    center_print(f"{RED}  [!] WARNING: {warning_mode}. Log entries will be lost.{RESET}")
+    
+    prompt = f"Execute vacuum with limit '{limit}'?" if not IS_DRY_RUN else "Simulate journal vacuum?"
+    if ask_yes_no(f"{YELLOW}  [?] {prompt}{RESET}"):
+        print(); center_print(f"{CYAN}  [*] {'Vacuuming' if not IS_DRY_RUN else 'Simulating vacuum of'} journal logs...{RESET}")
+        if _run(cmd, True):
+            msg = "Journal logs vacuumed successfully." if not IS_DRY_RUN else "Dry run complete. No logs were removed."
+            center_print(f"{GREEN}  [✓] Success: {msg}{RESET}")
+        else:
+            center_print(f"{RED}  [✗] Failure: Vacuum routine encountered an error.{RESET}")
+    else: print(); center_print(f"{YELLOW}  [-] Aborted: Logs preserved.{RESET}")
+    wait_for_enter()
+
+
 def show_dry_run_help() -> None:
     clear_screen(); header("About Dry Run Mode")
     center_print(f"{CYAN}{BOLD}[WHAT IS IT?]{RESET}")
@@ -688,6 +742,7 @@ def main_menu() -> None:
         center_print(f"  {GREEN}{BOLD}[3]{RESET}  Architectural Scrub: Remove Old Snap Revisions  {lock}")
         center_print(f"  {GREEN}{BOLD}[4]{RESET}  Discovery: Find & Purge Orphaned Packages  {lock}")
         center_print(f"  {GREEN}{BOLD}[5]{RESET}  Radar: Advanced Deep Search for Large & Aged Files")
+        center_print(f"  {GREEN}{BOLD}[6]{RESET}  Vacuum: Systemd Journal Logs (Log Cleanup)  {lock}")
         
         dry_color = YELLOW if IS_DRY_RUN else DIM
         dry_label = "Disable" if IS_DRY_RUN else "Enable"
@@ -700,10 +755,10 @@ def main_menu() -> None:
         print(); _divider(); print()
         center_print(f"  {RED}{BOLD}[0]{RESET}  {DIM}Exit CleanX{RESET}")
         print()
-        valid = ["0", "1", "2", "3", "4", "5", "8", "H", "h"] + (["9"] if not HAS_SUDO_PERM else [])
+        valid = ["0", "1", "2", "3", "4", "5", "6", "8", "H", "h"] + (["9"] if not HAS_SUDO_PERM else [])
         choice = ask_choice(valid)
         if choice == "1": manage_user_cache()
-        elif choice in ("2", "3", "4"):
+        elif choice in ("2", "3", "4", "6"):
             if not HAS_SUDO_PERM:
                 print(); center_print(f"{YELLOW}  [!] Action blocked: Sudo privileges required.{RESET}")
                 if ask_yes_no("  [?] Authenticate Sudo right now?"):
@@ -711,6 +766,7 @@ def main_menu() -> None:
             if choice == "2": manage_system_cache()
             elif choice == "3": clean_snap_old_versions()
             elif choice == "4": manage_orphaned_packages()
+            elif choice == "6": manage_journal_logs()
         elif choice == "5": manage_large_files()
         elif choice == "8":
             IS_DRY_RUN = not IS_DRY_RUN
