@@ -119,8 +119,12 @@ def app_logo() -> None:
 
 def ask_yes_no(prompt: str, default_no: bool = True) -> bool:
     hint = f"{DIM}(y/N){RESET}" if default_no else f"{DIM}(Y/n){RESET}"
+    # Save cursor position before drawing the prompt block
+    print("\0337", end="", flush=True)  # ANSI save cursor
     while True:
         _flush_stdin()
+        # Restore cursor and clear from here down before each attempt
+        print("\0338\033[J", end="", flush=True)  # ANSI restore cursor + erase below
         try:
             print()
             center_print(f"{prompt}  {hint}")
@@ -138,21 +142,23 @@ def ask_yes_no(prompt: str, default_no: bool = True) -> bool:
             return not default_no
 
         center_print(f"{RED}  [!] Please enter (y) to confirm or (n) to cancel.{RESET}")
-        time.sleep(1.5)
-        print("\033[A\r\033[K" * 4, end="", flush=True)
+        time.sleep(1.2)
 
 
 def ask_choice(options: list[str]) -> str:
     _flush_stdin()
+    # Save cursor position right before the input prompt
+    print("\0337", end="", flush=True)
     while True:
+        # Restore cursor and clear from here down before each attempt
+        print("\0338\033[J", end="", flush=True)
         try:
             c = cols()
             raw = input(" " * max(0, c // 2 - 3) + "  ➜  ").strip()
             if raw in options:
                 return raw
-            center_print(f"{RED}  [!] Operational mismatch: '{raw}' is not valid.{RESET}")
+            center_print(f"{RED}  [!] Invalid choice: '{raw}'. Please select a listed option.{RESET}")
             time.sleep(1.2)
-            print("\033[A\r\033[K" * 2, end="", flush=True)
         except (KeyboardInterrupt, EOFError):
             return "0"
 
@@ -169,6 +175,7 @@ def format_size(b: int) -> str:
 
 
 def _walk_size(path: Path) -> int:
+    """Return the disk usage in bytes for *path* (file or directory)."""
     if not path.exists():
         return 0
     if path.is_file() and not path.is_symlink():
@@ -176,10 +183,16 @@ def _walk_size(path: Path) -> int:
             return path.stat().st_size
         except OSError:
             return 0
+    # Prefer the fast system 'du' tool; fall back to Python walk on failure.
     try:
-        out = subprocess.run(["du", "-sb", str(path)], capture_output=True, text=True, timeout=30)
+        out = subprocess.run(
+            ["du", "-sb", str(path)],
+            capture_output=True, text=True, timeout=30
+        )
         if out.returncode == 0:
-            return int(out.stdout.split()[0])
+            parts = out.stdout.split()
+            if parts and parts[0].isdigit():
+                return int(parts[0])
     except Exception:
         pass
     total = 0
@@ -234,44 +247,80 @@ def print_described_table(targets: list[dict], title: str = "") -> int:
 
 
 def _run(cmd: list[str], use_sudo: bool = False) -> bool:
+    """Execute *cmd*, optionally prepending sudo.  Respects IS_DRY_RUN."""
+    if not cmd:
+        return False
     if use_sudo and cmd[0] != 'sudo':
         cmd = ['sudo'] + cmd
     if IS_DRY_RUN:
         center_print(f"    {DIM}[DRY RUN] Would execute: {' '.join(cmd)}{RESET}")
         return True
     try:
-        r = subprocess.run(cmd, capture_output=True, timeout=60)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         return r.returncode == 0
     except Exception:
         return False
 
 
+_PROTECTED_PATHS: frozenset[str] = frozenset({
+    "/", "/bin", "/boot", "/dev", "/etc", "/lib", "/lib64",
+    "/proc", "/root", "/run", "/sbin", "/srv", "/sys", "/usr",
+})
+
+
 def delete_path_content(path: Path, delete_root: bool = False) -> bool:
-    if not path.exists(): return True
-    if IS_DRY_RUN:
-        target = "file" if path.is_file() else "directory"
-        center_print(f"    {DIM}[DRY RUN] Would delete {target}: {path}{RESET}")
+    """Delete the contents of *path* (or the path itself when delete_root=True).
+
+    Guards against accidental deletion of critical system directories and empty
+    paths.  Respects IS_DRY_RUN.
+    """
+    if not path.exists():
         return True
+
+    # ── Safety: never touch protected system roots ──────────────────────────
+    try:
+        resolved = path.resolve()
+    except OSError:
+        return False
+    if str(resolved) in _PROTECTED_PATHS or resolved == Path.home():
+        center_print(f"{RED}  [✗] Blocked: Refusing to delete protected path: {resolved}{RESET}")
+        return False
+
+    if IS_DRY_RUN:
+        target_type = "file" if path.is_file() else "directory"
+        center_print(f"    {DIM}[DRY RUN] Would delete {target_type}: {path}{RESET}")
+        return True
+
     sudo = check_sudo_status()
     try:
         if path.is_file() or path.is_symlink():
-            if sudo: return _run(['rm', '-f', str(path)], use_sudo=True)
-            path.unlink(); return True
+            if sudo:
+                return _run(['rm', '-f', str(path)], use_sudo=True)
+            path.unlink()
+            return True
         if delete_root:
-            if sudo: return _run(['rm', '-rf', str(path)], use_sudo=True)
-            shutil.rmtree(path, ignore_errors=True); return True
+            if sudo:
+                return _run(['rm', '-rf', str(path)], use_sudo=True)
+            shutil.rmtree(path, ignore_errors=True)
+            return True
         ok = True
         for child in path.iterdir():
             try:
                 if child.is_dir() and not child.is_symlink():
-                    if sudo: ok &= _run(['rm', '-rf', str(child)], use_sudo=True)
-                    else: shutil.rmtree(child, ignore_errors=True)
+                    if sudo:
+                        ok &= _run(['rm', '-rf', str(child)], use_sudo=True)
+                    else:
+                        shutil.rmtree(child, ignore_errors=True)
                 else:
-                    if sudo: ok &= _run(['rm', '-f', str(child)], use_sudo=True)
-                    else: child.unlink(missing_ok=True)
-            except OSError: ok = False
+                    if sudo:
+                        ok &= _run(['rm', '-f', str(child)], use_sudo=True)
+                    else:
+                        child.unlink(missing_ok=True)
+            except OSError:
+                ok = False
         return ok
-    except PermissionError: return False
+    except PermissionError:
+        return False
 
 
 def get_user_home() -> Path:
@@ -286,16 +335,24 @@ def get_user_home() -> Path:
 
 
 def get_all_human_users() -> list[tuple[str, Path]]:
+    """Return a sorted list of (username, home_dir) for all human-accessible users."""
     users: list[tuple[str, Path]] = []
     try:
         with open("/etc/passwd") as f:
             for line in f:
                 parts = line.split(":")
-                if len(parts) < 6: continue
-                name, uid, home = parts[0], int(parts[2]), Path(parts[5].strip())
+                if len(parts) < 6:
+                    continue
+                name = parts[0]
+                try:
+                    uid = int(parts[2])
+                except ValueError:
+                    continue
+                home = Path(parts[5].strip())
                 if (uid == 0 or (uid >= 1000 and uid != 65534)) and home.is_dir():
                     users.append((name, home))
-    except Exception: pass
+    except Exception:
+        pass
     return sorted(users, key=lambda u: (u[0] != "root", u[0]))
 
 
@@ -351,14 +408,21 @@ def _find_recursive_targets(root: Path, name_pattern: str, skip_folders: set[str
 
 
 def _find_dead_logs(root: Path) -> tuple[list[Path], int]:
+    """Find rotated/archived log files under *root* (.gz, .N, .old suffixes)."""
     found: list[Path] = []
     total = 0
-    pattern = re.compile(r'.*\.(gz|\d+|old)$')
+    # Match only standard log-rotation suffixes: .gz, .1/.2/..., .old
+    pattern = re.compile(r'\.(?:gz|\d+|old)$')
     try:
         for f in root.rglob("*"):
-            if f.is_file() and pattern.match(f.name):
-                found.append(f); total += f.stat().st_size
-    except Exception: pass
+            if f.is_file() and not f.is_symlink() and pattern.search(f.name):
+                try:
+                    found.append(f)
+                    total += f.stat().st_size
+                except OSError:
+                    pass
+    except Exception:
+        pass
     return found, total
 
 
@@ -389,9 +453,11 @@ def manage_user_cache() -> None:
     if total == 0 and not any(r["label"] == "Broken System Symlinks" and r["exists"] for r in results):
         center_print(f"{GREEN}  [✓] Clean: No cache clutter detected.{RESET}"); wait_for_enter(); return
     
-    warning_mode = "PURGE IS PERMANENT" if not IS_DRY_RUN else "DRY RUN ACTIVE"
-    center_print(f"{RED}  [!] WARNING: {warning_mode}. Files will NOT go to Trash.{RESET}")
-    
+    if IS_DRY_RUN:
+        center_print(f"{YELLOW}  [i] DRY RUN ACTIVE. No files will be removed — simulation only.{RESET}")
+    else:
+        center_print(f"{RED}  [!] WARNING: PURGE IS PERMANENT. Files will NOT go to Trash.{RESET}")
+
     prompt = "Wipe all listed profile caches?" if not IS_DRY_RUN else "Simulate profile cache wipe?"
     if ask_yes_no(f"{YELLOW}  [?] {prompt}{RESET}"):
         print(); center_print(f"{CYAN}  [*] {'Erasing' if not IS_DRY_RUN else 'Simulating erasure of'} files...{RESET}")
@@ -424,19 +490,23 @@ def manage_system_cache() -> None:
     dead_logs, logs_size = _find_dead_logs(Path("/var/log"))
     results.append({"label": "Archived System Logs", "path": dead_logs, "desc": "Old versions of system logs (.gz and .old) no longer in use.", "is_important": False, "exists": bool(dead_logs), "size_bytes": logs_size, "size_fmt": format_size(logs_size), "is_list": True})
     total = print_described_table(results)
-    if total == 0:
+    has_logs = any(r["label"] == "Archived System Logs" and r["exists"] for r in results)
+    if total == 0 and not has_logs:
         center_print(f"{GREEN}  [✓] Clean: System engine caches are empty.{RESET}"); wait_for_enter(); return
     
-    warning_mode = "PURGE IS PERMANENT" if not IS_DRY_RUN else "DRY RUN ACTIVE"
-    center_print(f"{RED}  [!] WARNING: {warning_mode}. System files will be lost.{RESET}")
-    
+    if IS_DRY_RUN:
+        center_print(f"{YELLOW}  [i] DRY RUN ACTIVE. No system files will be removed — simulation only.{RESET}")
+    else:
+        center_print(f"{RED}  [!] WARNING: PURGE IS PERMANENT. System files will be lost.{RESET}")
+
     prompt = "Purge all listed systemic core engines and cache layouts?" if not IS_DRY_RUN else "Simulate systemic purge?"
     if not ask_yes_no(f"{YELLOW}  [?] {prompt}{RESET}"):
         print(); center_print(f"{YELLOW}  [-] Aborted: Core systemic architecture preserved safely.{RESET}"); wait_for_enter(); return
     print(); center_print(f"{CYAN}  [1/2] Pruning systemic package databases...{RESET}")
-    _run(['apt-get', 'clean'], True); _run(['apt-get', 'autoremove', '-y'], True)
-    center_print(f"    [{GREEN}✓{RESET}]  APT cleanup complete")
-    center_print(f"{CYAN}  [2/2] Executing deep deployment scrub routines...{RESET}")
+    _run(['apt-get', 'clean'], True)
+    _run(['apt-get', 'autoremove', '-y'], True)
+    center_print(f"    [{GREEN}✓{RESET}]  APT {'cleanup complete' if not IS_DRY_RUN else 'cleanup simulated'}")
+    center_print(f"{CYAN}  [2/2] {'Executing' if not IS_DRY_RUN else 'Simulating'} deep deployment scrub routines...{RESET}")
     for r in results:
         if r["exists"] and "APT" not in r["label"]:
             targets = r["path"] if r.get("is_list") else [r["path"]]
@@ -487,8 +557,10 @@ def manage_large_files() -> None:
     home = get_user_home()
     
     # 1. Size Validation Loop
+    center_print(f"{YELLOW}  [?] Enter minimum size (e.g., 500MB, 2GB, 1TB) [default: 100MB]:{RESET}")
+    print("\0337", end="", flush=True)  # save cursor
     while True:
-        center_print(f"{YELLOW}  [?] Enter minimum size (e.g., 500MB, 2GB, 1TB) [default: 100MB]:{RESET}")
+        print("\0338\033[J", end="", flush=True)  # restore + erase below
         c = cols()
         try:
             size_input = input(" " * max(0, c // 2 - 3) + "  ➜  ").strip().upper()
@@ -503,16 +575,19 @@ def manage_large_files() -> None:
             min_size_bytes = int(val * multipliers.get(unit, 1024**2))
             if min_size_bytes > 10 * 1024**4:
                 center_print(f"{RED}  [!] Input too large. Max limit is 10TB.{RESET}")
-                time.sleep(1.2); print("\033[A\r\033[K" * 4, end="", flush=True); continue
+                time.sleep(1.2); continue
             break
         except KeyboardInterrupt: print(); return
         except (ValueError, EOFError):
             center_print(f"{RED}  [!] Please enter a valid size (e.g., 100MB, 1.5GB).{RESET}")
-            time.sleep(1.2); print("\033[A\r\033[K" * 4, end="", flush=True)
+            time.sleep(1.2)
 
     # 2. Age Validation Loop
+    print()
+    center_print(f"{YELLOW}  [?] Enter minimum age in days (press Enter to skip):{RESET}")
+    print("\0337", end="", flush=True)  # save cursor
     while True:
-        center_print(f"{YELLOW}  [?] Enter minimum age in days (press Enter to skip):{RESET}")
+        print("\0338\033[J", end="", flush=True)  # restore + erase below
         c = cols()
         try:
             age_input = input(" " * max(0, c // 2 - 3) + "  ➜  ").strip()
@@ -524,12 +599,15 @@ def manage_large_files() -> None:
             break
         except KeyboardInterrupt: print(); return
         except (ValueError, EOFError):
-            center_print(f"{RED}  [!] Please enter a valid number of days.{RESET}")
-            time.sleep(1.2); print("\033[A\r\033[K" * 4, end="", flush=True)
+            center_print(f"{RED}  [!] Please enter a valid number of days (0 or more).{RESET}")
+            time.sleep(1.2)
 
     # 3. Path Validation Loop
+    print()
+    center_print(f"{YELLOW}  [?] Enter scan path (default: {home}):{RESET}")
+    print("\0337", end="", flush=True)  # save cursor
     while True:
-        center_print(f"{YELLOW}  [?] Enter scan path (default: {home}):{RESET}")
+        print("\0338\033[J", end="", flush=True)  # restore + erase below
         c = cols()
         try:
             path_input = input(" " * max(0, c // 2 - 3) + "  ➜  ").strip()
@@ -542,16 +620,21 @@ def manage_large_files() -> None:
                 break
             else:
                 center_print(f"{RED}  [!] Path does not exist or is not a directory.{RESET}")
+                time.sleep(1.2)
         except KeyboardInterrupt: print(); return
-        except (EOFError):
+        except EOFError:
             scan_path = home
             break
-        time.sleep(1.2); print("\033[A\r\033[K" * 4, end="", flush=True)
 
     age_str = f" and > {min_age_days} days old" if min_age_days > 0 else ""
     center_print(f"{CYAN}  [*] Scanning {scan_path} for files > {format_size(min_size_bytes)}{age_str}...{RESET}\n")
-    
+
     abs_path = scan_path.expanduser().resolve()
+    _SYSTEM_ROOTS = ('/proc', '/sys', '/dev')
+    if any(str(abs_path).startswith(p) for p in _SYSTEM_ROOTS):
+        center_print(f"{RED}  [✗] Blocked: Scanning virtual filesystem paths is not supported.{RESET}")
+        wait_for_enter(); return
+
     is_system_path = any(str(abs_path).startswith(p) for p in ['/var', '/root', '/etc', '/boot', '/usr'])
     if is_system_path and not HAS_SUDO_PERM:
         center_print(f"{YELLOW}  [!] Scanning a system path without Sudo. Results may be incomplete.{RESET}\n")
@@ -611,22 +694,29 @@ def clean_snap_old_versions() -> None:
     if not HAS_SUDO_PERM:
         center_print(f"{RED}  [✗] Error: Sudo privileges required.{RESET}"); wait_for_enter(); return
     center_print(f"{CYAN}  [*] Searching for disabled Snap revisions...{RESET}\n")
-    try: out = subprocess.check_output(["snap", "list", "--all"], text=True)
-    except Exception: out = ""
-    disabled = []
+    try:
+        out = subprocess.check_output(["snap", "list", "--all"], text=True)
+    except Exception:
+        out = ""
+    disabled: list[tuple[str, str]] = []
     for line in out.splitlines()[1:]:
-        if re.search(r'\bdisabled\b', line, re.IGNORECASE):
-            parts = re.split(r'\s{2,}', line.strip())
-            if not parts: parts = line.split()
-            if len(parts) >= 3:
-                name = parts[0]; rev = parts[2]
-                if not rev.isdigit() and len(parts) > 3: rev = parts[3]
-                disabled.append((name, rev))
+        if not re.search(r'\bdisabled\b', line, re.IGNORECASE):
+            continue
+        # 'snap list --all' columns: Name  Version  Rev  Tracking  Publisher  Notes
+        parts = line.split()
+        if len(parts) < 3:
+            continue
+        name = parts[0]
+        # Rev is always the 3rd column (index 2) in standard snap output
+        rev = parts[2]
+        if rev.isdigit():
+            disabled.append((name, rev))
     if not disabled:
         center_print(f"{GREEN}  [✓] No old Snap revisions found.{RESET}"); wait_for_enter(); return
-    for name, rev in disabled: center_print(f"  {DIM}→{RESET}  {name:<28}  {DIM}[rev: {rev}]{RESET}")
+    for name, rev in disabled:
+        center_print(f"  {DIM}→{RESET}  {name:<28}  {DIM}[rev: {rev}]{RESET}")
     print()
-    
+
     prompt = "Permanently remove these disabled revisions?" if not IS_DRY_RUN else "Simulate Snap revision removal?"
     if ask_yes_no(f"{YELLOW}  [?] {prompt}{RESET}"):
         print(); center_print(f"{CYAN}  [*] {'Removing' if not IS_DRY_RUN else 'Simulating removal of'} revisions...{RESET}\n")
@@ -636,7 +726,8 @@ def clean_snap_old_versions() -> None:
             center_print(f"    [{status}{RESET}]  {n} (rev {r})")
         msg = "Old revisions removed." if not IS_DRY_RUN else "Dry run complete. No Snaps were modified."
         print(); center_print(f"{GREEN}  [✓] Done: {msg}{RESET}")
-    else: print(); center_print(f"{YELLOW}  [-] Aborted: No revisions were removed.{RESET}")
+    else:
+        print(); center_print(f"{YELLOW}  [-] Aborted: No revisions were removed.{RESET}")
     wait_for_enter()
 
 
@@ -669,18 +760,38 @@ def manage_journal_logs() -> None:
     if choice == "0": return
 
     if choice == "1":
-        center_print(f"{YELLOW}  [?] Enter time limit (e.g., 2days, 1weeks):{RESET}")
-        limit = input(" " * max(0, cols() // 2 - 3) + "  ➜  ").strip()
-        if not limit: limit = "3days"
+        center_print(f"{YELLOW}  [?] Enter time limit (e.g., 2days, 1weeks) [default: 3days]:{RESET}")
+        print("\0337", end="", flush=True)
+        while True:
+            print("\0338\033[J", end="", flush=True)
+            try:
+                limit = input(" " * max(0, cols() // 2 - 3) + "  ➜  ").strip()
+                if not limit: limit = "3days"
+                if not re.match(r'^\d+\s*(days?|weeks?|months?|years?)$', limit, re.IGNORECASE):
+                    center_print(f"{RED}  [!] Invalid format. Use e.g.: 2days, 1weeks.{RESET}")
+                    time.sleep(1.2); continue
+                break
+            except (KeyboardInterrupt, EOFError): limit = "3days"; break
         cmd = ["journalctl", f"--vacuum-time={limit}"]
     else:
-        center_print(f"{YELLOW}  [?] Enter size limit (e.g., 500M, 1G):{RESET}")
-        limit = input(" " * max(0, cols() // 2 - 3) + "  ➜  ").strip()
-        if not limit: limit = "500M"
+        center_print(f"{YELLOW}  [?] Enter size limit (e.g., 500M, 1G) [default: 500M]:{RESET}")
+        print("\0337", end="", flush=True)
+        while True:
+            print("\0338\033[J", end="", flush=True)
+            try:
+                limit = input(" " * max(0, cols() // 2 - 3) + "  ➜  ").strip()
+                if not limit: limit = "500M"
+                if not re.match(r'^\d+(\.\d+)?\s*[KMGT]?B?$', limit, re.IGNORECASE):
+                    center_print(f"{RED}  [!] Invalid format. Use e.g.: 200M, 1G.{RESET}")
+                    time.sleep(1.2); continue
+                break
+            except (KeyboardInterrupt, EOFError): limit = "500M"; break
         cmd = ["journalctl", f"--vacuum-size={limit}"]
 
-    warning_mode = "PURGE IS PERMANENT" if not IS_DRY_RUN else "DRY RUN ACTIVE"
-    center_print(f"{RED}  [!] WARNING: {warning_mode}. Log entries will be lost.{RESET}")
+    if IS_DRY_RUN:
+        center_print(f"{YELLOW}  [i] DRY RUN ACTIVE. No logs will be removed — simulation only.{RESET}")
+    else:
+        center_print(f"{RED}  [!] WARNING: PURGE IS PERMANENT. Log entries will be lost.{RESET}")
     
     prompt = f"Execute vacuum with limit '{limit}'?" if not IS_DRY_RUN else "Simulate journal vacuum?"
     if ask_yes_no(f"{YELLOW}  [?] {prompt}{RESET}"):
@@ -784,7 +895,11 @@ def main_menu() -> None:
             print("\033[A\r\033[K" * 4, end="", flush=True)
 
 if __name__ == "__main__":
-    try: main_menu()
+    if sys.version_info < (3, 10):
+        print(f"{RED}[!] Python 3.10+ is required. Current: {sys.version}{RESET}")
+        sys.exit(1)
+    try:
+        main_menu()
     except KeyboardInterrupt:
         print(); center_print(f"{RED}  [!] Operation interrupted.{RESET}")
         sys.exit(0)

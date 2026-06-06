@@ -1,0 +1,9 @@
+# =========================================================================
+# CleanX Dependencies
+# =========================================================================
+# This project is engineered to strictly utilize Python's Standard Libraries.
+# Maximize security and zero-dependency overhead.
+#
+# No external pip packages are required to run this script.
+# Just run: python3 scfile.py
+# =========================================================================
