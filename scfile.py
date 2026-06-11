@@ -366,7 +366,6 @@ def manage_user_cache() -> None:
     clear_screen(); header("User Cache Sweeper")
     home = get_user_home()
     targets = [
-        {"label": "General Application Cache", "path": str(home / ".cache"), "desc": "Temporary files for installed software including Pip.", "is_important": False},
         {"label": "Node Package Manager (npm)", "path": str(home / ".npm"), "desc": "Download cache for Javascript development libraries.", "is_important": False},
         {"label": "User Temporary Staging", "path": str(home / "tmp"), "desc": "Personal temporary folder for miscellaneous user data.", "is_important": False},
         {"label": "Snap Execution Cache", "path": str(home / "snap/common/.cache"), "desc": "Cached assets specifically for Snap package operations.", "is_important": True},
