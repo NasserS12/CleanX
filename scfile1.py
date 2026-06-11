@@ -906,6 +906,77 @@ def _collect_residuals(pkg: str) -> list[dict]:
     return residuals
 
 
+def _search_packages(query: str) -> list[tuple[str, str]]:
+    """Search all package managers for installed packages with names containing *query*.
+    Returns a sorted list of (pm_name, package_name)."""
+    results: list[tuple[str, str]] = []
+    q = query.lower()
+
+    # APT
+    try:
+        r = subprocess.run(
+            ["dpkg", "--get-selections"],
+            capture_output=True, text=True, timeout=15
+        )
+        for line in r.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 1 and parts[0].lower().startswith(q):
+                if len(parts) < 2 or parts[1] == "install":
+                    results.append(("apt", parts[0]))
+    except Exception:
+        pass
+
+    # Snap
+    try:
+        r = subprocess.run(
+            ["snap", "list"],
+            capture_output=True, text=True, timeout=15
+        )
+        for line in r.stdout.splitlines()[1:]:
+            name = line.split()[0] if line.split() else ""
+            if name and name.lower().startswith(q):
+                results.append(("snap", name))
+    except Exception:
+        pass
+
+    # Flatpak
+    try:
+        r = subprocess.run(
+            ["flatpak", "list", "--app", "--columns=application"],
+            capture_output=True, text=True, timeout=15
+        )
+        for line in r.stdout.splitlines():
+            app = line.strip()
+            if app:
+                short_name = app.split('.')[-1].lower()
+                if app.lower().startswith(q) or short_name.startswith(q):
+                    results.append(("flatpak", app))
+    except Exception:
+        pass
+
+    # pip
+    try:
+        r = subprocess.run(
+            ["pip3", "list", "--format=columns"],
+            capture_output=True, text=True, timeout=15
+        )
+        for line in r.stdout.splitlines()[2:]:
+            name = line.split()[0] if line.split() else ""
+            if name and name.lower().startswith(q):
+                results.append(("pip", name))
+    except Exception:
+        pass
+
+    seen: set[str] = set()
+    unique: list[tuple[str, str]] = []
+    for pm, name in results:
+        key = f"{pm}:{name}"
+        if key not in seen:
+            seen.add(key)
+            unique.append((pm, name))
+    return sorted(unique, key=lambda x: (x[1].lower(), x[0]))
+
+
 def remove_program_and_residuals() -> None:
     """
     Interactive deep-removal tool.
@@ -921,23 +992,62 @@ def remove_program_and_residuals() -> None:
         return
 
     # ── 1. Get program name ───────────────────────────────────────────────────
-    center_print(f"{YELLOW}  [?] Enter the program name to remove (or press Enter to cancel):{RESET}")
-    c = cols()
-    try:
-        pkg = input(" " * max(0, c // 2 - 3) + "  ➜  ").strip().lower()
-    except (KeyboardInterrupt, EOFError):
-        print()
-        return
-    if not pkg:
-        center_print(f"{YELLOW}  [-] Cancelled.{RESET}")
-        wait_for_enter()
-        return
+    while True:
+        clear_screen(); header("Program Deep Removal & Residual Purge")
+        center_print(f"{YELLOW}  [?] Enter the program name (or partial name) to remove (or press Enter to cancel):{RESET}")
+        c = cols()
+        try:
+            raw = input(" " * max(0, c // 2 - 3) + "  ➜  ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            print()
+            return
+        if not raw:
+            center_print(f"{YELLOW}  [-] Cancelled.{RESET}")
+            wait_for_enter()
+            return
 
-    # Sanitize: allow only alphanumeric, dash, dot, underscore, plus
-    if not re.match(r'^[a-z0-9][a-z0-9+\-._]*$', pkg):
-        center_print(f"{RED}  [✗] Invalid package name: '{pkg}'. Aborting.{RESET}")
-        wait_for_enter()
-        return
+        # Sanitize: allow only alphanumeric, dash, dot, underscore, plus
+        if not re.match(r'^[a-z0-9][a-z0-9+\-._]*$', raw):
+            center_print(f"{RED}  [✗] Invalid input: '{raw}'. Aborting.{RESET}")
+            time.sleep(2)
+            continue
+
+        # Require at least 3 characters to avoid flooding results
+        if len(raw) < 3:
+            center_print(f"{RED}  [✗] Please type at least 3 characters.{RESET}")
+            time.sleep(2)
+            continue
+
+        # ── 1b. Search for matching installed packages ───────────────────────────
+        candidates = _search_packages(raw)
+
+        if not candidates:
+            center_print(f"{RED}  [✗] No installed packages match '{raw}'.{RESET}")
+            time.sleep(2)
+            continue
+
+        break
+
+    if len(candidates) == 1:
+        pkg = candidates[0][1]
+        center_print(f"  {GREEN}[✓]{RESET}  Found: {BOLD}{pkg}{RESET}")
+        print()
+    else:
+        center_print(f"{YELLOW}  [!] Multiple packages matching '{raw}':{RESET}\n")
+        for i, (pm, name) in enumerate(candidates, 1):
+            center_print(f"  {GREEN}{BOLD}[{i}]{RESET}  {name:<35}  {DIM}({pm.upper()}){RESET}")
+        print()
+        center_print(f"  {RED}{BOLD}[0]{RESET}  Cancel")
+        print()
+        choice = ask_choice([str(i) for i in range(len(candidates) + 1)])
+        if choice == "0":
+            center_print(f"{YELLOW}  [-] Cancelled.{RESET}")
+            wait_for_enter()
+            return
+        pkg = candidates[int(choice) - 1][1]
+        print()
+        center_print(f"  {GREEN}[✓]{RESET}  Selected: {BOLD}{pkg}{RESET}")
+        print()
 
     # ── 2. Hard block for critical packages ──────────────────────────────────
     if pkg in _CRITICAL_PACKAGES or any(pkg.startswith(cp) for cp in _CRITICAL_PACKAGES):
@@ -1053,24 +1163,24 @@ def remove_program_and_residuals() -> None:
             msg    = "removed successfully" if ok else "removal encountered an error"
             center_print(f"  {status}  '{pkg}' {msg}.")
             print()
+
+            if residuals and ok:
+                prompt_r = "Delete all residual files listed above?" if not IS_DRY_RUN else "Simulate residual deletion?"
+                if ask_yes_no(f"{YELLOW}  [?] {prompt_r}{RESET}", default_no=True):
+                    print()
+                    center_print(f"{CYAN}  [*] {'Purging' if not IS_DRY_RUN else 'Simulating purge of'} residual files...{RESET}\n")
+                    for r in residuals:
+                        ok = delete_path_content(r["path"], delete_root=True)
+                        status = f"{GREEN}✓" if ok else f"{RED}✗"
+                        center_print(f"    [{status}{RESET}]  {r['label']}")
+                    print()
+                    msg = "Residuals purged." if not IS_DRY_RUN else "Dry run complete. No residuals were removed."
+                    center_print(f"{GREEN}  [✓] {msg}{RESET}")
+                else:
+                    print()
         else:
             print()
             center_print(f"{YELLOW}  [-] Package removal skipped.{RESET}")
-            print()
-
-    if residuals:
-        prompt_r = "Delete all residual files listed above?" if not IS_DRY_RUN else "Simulate residual deletion?"
-        if ask_yes_no(f"{YELLOW}  [?] {prompt_r}{RESET}", default_no=True):
-            print()
-            center_print(f"{CYAN}  [*] {'Purging' if not IS_DRY_RUN else 'Simulating purge of'} residual files...{RESET}\n")
-            for r in residuals:
-                ok = delete_path_content(r["path"], delete_root=True)
-                status = f"{GREEN}✓" if ok else f"{RED}✗"
-                center_print(f"    [{status}{RESET}]  {r['label']}")
-            print()
-            msg = "Residuals purged." if not IS_DRY_RUN else "Dry run complete. No residuals were removed."
-            center_print(f"{GREEN}  [✓] {msg}{RESET}")
-        else:
             print()
             center_print(f"{YELLOW}  [-] Residual files preserved.{RESET}")
 
@@ -1140,7 +1250,7 @@ def main_menu() -> None:
             show_dry_run_help()
         elif choice == "9": attempt_elevation()
         elif choice == "0":
-            print(); center_print(f"{GREEN}  [✓] Session terminated. Goodbye Nasser!{RESET}")
+            print(); center_print(f"{GREEN}  [✓] Session terminated. Goodbye!{RESET}")
             sys.exit(0)
         else:
             print(); center_print(f"{RED}  [!] Operational mismatch: '{choice}' is not valid.{RESET}")
