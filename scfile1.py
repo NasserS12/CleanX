@@ -1209,24 +1209,32 @@ def main_menu() -> None:
         
         center_print(f"{CYAN}  [+] Framework Status: {mode}  {DIM}|{RESET}  Privileges: {lock}  {DIM}|{RESET}  Mode: {dry}")
         print(); _divider(); print()
-        center_print(f"  {GREEN}{BOLD}[1]{RESET}  Deep Scan & Purge: User Profile Cache")
-        center_print(f"  {GREEN}{BOLD}[2]{RESET}  Integrated Purge: System Engine Cache  {lock}")
-        center_print(f"  {GREEN}{BOLD}[3]{RESET}  Architectural Scrub: Remove Old Snap Revisions  {lock}")
-        center_print(f"  {GREEN}{BOLD}[4]{RESET}  Discovery: Find & Purge Orphaned Packages  {lock}")
-        center_print(f"  {GREEN}{BOLD}[5]{RESET}  Radar: Advanced Deep Search for Large & Aged Files")
-        center_print(f"  {GREEN}{BOLD}[6]{RESET}  Vacuum: Systemd Journal Logs (Log Cleanup)  {lock}")
-        center_print(f"  {GREEN}{BOLD}[7]{RESET}  Deep Removal: Program + All Residual Files  {lock}")
-        
+
+        # ── Menu items ───────────────────────────────────────────────────────────
+        menu_width = 68
+        indent = max(0, (cols() - menu_width) // 2)
+        def m(text: str) -> None:
+            plain = re.sub(r'\033\[[0-9;]*m', '', text)
+            print(" " * indent + text + " " * max(0, menu_width - len(plain)))
+
+        m(f"  {GREEN}{BOLD}[1]{RESET}  Deep Scan & Purge: User Profile Cache")
+        m(f"  {GREEN}{BOLD}[2]{RESET}  Integrated Purge: System Engine Cache  {lock}")
+        m(f"  {GREEN}{BOLD}[3]{RESET}  Architectural Scrub: Remove Old Snap Revisions  {lock}")
+        m(f"  {GREEN}{BOLD}[4]{RESET}  Discovery: Find & Purge Orphaned Packages  {lock}")
+        m(f"  {GREEN}{BOLD}[5]{RESET}  Radar: Advanced Deep Search for Large & Aged Files")
+        m(f"  {GREEN}{BOLD}[6]{RESET}  Vacuum: Systemd Journal Logs (Log Cleanup)  {lock}")
+        m(f"  {GREEN}{BOLD}[7]{RESET}  Deep Removal: Program + All Residual Files  {lock}")
+
         dry_color = YELLOW if IS_DRY_RUN else DIM
         dry_label = "Disable" if IS_DRY_RUN else "Enable"
         print()
-        center_print(f"  {dry_color}{BOLD}[8]{RESET}  {dry_label} Dry Run Mode (No deletion)")
-        center_print(f"  {WHITE}{BOLD}[H]{RESET}  Help / About Dry Run Mode")
-        
+        m(f"  {dry_color}{BOLD}[8]{RESET}  {dry_label} Dry Run Mode (No deletion)")
+        m(f"  {WHITE}{BOLD}[H]{RESET}  Help / About Dry Run Mode")
+
         if not HAS_SUDO_PERM:
-            center_print(f"  {DIM}[9]  Elevate Session to Sudo{RESET}")
+            m(f"  {DIM}[9]  Elevate Session to Sudo{RESET}")
         print(); _divider(); print()
-        center_print(f"  {RED}{BOLD}[0]{RESET}  {DIM}Exit CleanX{RESET}")
+        m(f"  {RED}{BOLD}[0]{RESET}  {DIM}Exit CleanX{RESET}")
         print()
         valid = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "H", "h"] + (["9"] if not HAS_SUDO_PERM else [])
         choice = ask_choice(valid)
