@@ -844,16 +844,10 @@ def _collect_residuals(pkg: str) -> list[dict]:
             (home / ".cache"       / name,  f"User cache (~/.cache/{name})"),
             (home / f".{name}",             f"Hidden home dir (~/.{name})"),
             (home / f".{name}rc",           f"RC dotfile (~/.{name}rc)"),
-            (Path("/etc")          / name,  f"System config (/etc/{name})"),
-            (Path("/var/log")      / name,  f"Log dir (/var/log/{name})"),
-            (Path("/var/lib")      / name,  f"Var lib (/var/lib/{name})"),
-            (Path("/usr/share")    / name,  f"Shared data (/usr/share/{name})"),
-            (Path("/opt")          / name,  f"Opt dir (/opt/{name})"),
         ]
 
-    # Snap-specific data directories
-    raw_candidates.append((home / "snap" / pkg,     f"Snap user data (~/snap/{pkg})"))
-    raw_candidates.append((Path("/var/snap") / pkg, f"Snap system data (/var/snap/{pkg})"))
+    # Snap-specific user data directory
+    raw_candidates.append((home / "snap" / pkg, f"Snap user data (~/snap/{pkg})"))
 
     # Glob: catch any subdir containing the pkg name (case-insensitive)
     for search_base, label_prefix, short_base in [
@@ -870,17 +864,6 @@ def _collect_residuals(pkg: str) -> list[dict]:
                             raw_candidates.append((child, f"{label_prefix} ({short_base}/{child.name})"))
         except PermissionError:
             pass
-
-    # Log glob: /var/log/pkgname*
-    try:
-        log_dir = Path("/var/log") / pkg
-        for p in Path("/var/log").glob(f"{pkg}*"):
-            if p != log_dir:
-                already = any(ep == p for ep, _ in raw_candidates)
-                if not already:
-                    raw_candidates.append((p, f"Log file ({p})"))
-    except Exception:
-        pass
 
     # Deduplicate by resolved path, keep only existing
     seen: set[Path] = set()
