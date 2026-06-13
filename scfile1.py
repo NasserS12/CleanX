@@ -87,8 +87,9 @@ def header(title: str) -> None:
     print()
 
 
-def _divider(char: str = "─", width: int = 65) -> None:
-    center_print(f"{DIM}{char * width}{RESET}")
+def _divider(char: str = "─", width: int = 0) -> None:
+    w = width if width > 0 else min(cols(), 65)
+    center_print(f"{DIM}{char * w}{RESET}")
 
 
 def app_logo() -> None:
@@ -101,19 +102,23 @@ def app_logo() -> None:
         f"{GREEN}╚██████╗███████╗███████╗██║  ██║██║ ╚████║██╔╝ ██╗{RESET}",
         f"{GREEN} ╚═════╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝{RESET}",
     ]
+    logo_width = 63
     print()
-    for line in logo_lines:
-        plain = re.sub(r'\033\[[0-9;]*m', '', line)
-        padding = max(0, (columns - len(plain)) // 2)
-        print(" " * padding + line)
-
-    slogan_text = "High-Performance Cache Analytics & Deep Scrub for Ubuntu Systems"
-    slogan_colored = f"{BOLD}{WHITE}{slogan_text}{RESET}"
-    divider_colored = f"{YELLOW}{'─' * len(slogan_text)}{RESET}"
-    print()
-    plain_slogan_pad = max(0, (columns - len(slogan_text)) // 2)
-    print(" " * plain_slogan_pad + slogan_colored)
-    print(" " * plain_slogan_pad + divider_colored)
+    if columns >= logo_width:
+        for line in logo_lines:
+            plain = re.sub(r'\033\[[0-9;]*m', '', line)
+            padding = max(0, (columns - len(plain)) // 2)
+            print(" " * padding + line)
+        slogan_text = "High-Performance Cache Analytics & Deep Scrub for Ubuntu Systems"
+        slogan_colored = f"{BOLD}{WHITE}{slogan_text}{RESET}"
+        divider_colored = f"{YELLOW}{'─' * len(slogan_text)}{RESET}"
+        print()
+        plain_slogan_pad = max(0, (columns - len(slogan_text)) // 2)
+        print(" " * plain_slogan_pad + slogan_colored)
+        print(" " * plain_slogan_pad + divider_colored)
+    else:
+        center_print(f"{CYAN}{BOLD}╔═══ CleanX ═══╗{RESET}")
+        center_print(f"{BOLD}{WHITE}Cache & Deep Scrub Tool{RESET}")
     print("\n")
 
 
@@ -1194,11 +1199,14 @@ def main_menu() -> None:
         print(); _divider(); print()
 
         # ── Menu items ───────────────────────────────────────────────────────────
-        menu_width = 68
+        menu_width = min(cols() - 4, 68)
         indent = max(0, (cols() - menu_width) // 2)
         def m(text: str) -> None:
             plain = re.sub(r'\033\[[0-9;]*m', '', text)
-            print(" " * indent + text + " " * max(0, menu_width - len(plain)))
+            if len(plain) > menu_width:
+                print(" " * indent + text)
+            else:
+                print(" " * indent + text + " " * max(0, menu_width - len(plain)))
 
         m(f"  {GREEN}{BOLD}[1]{RESET}  Deep Scan & Purge: User Profile Cache")
         m(f"  {GREEN}{BOLD}[2]{RESET}  Integrated Purge: System Engine Cache  {lock}")
