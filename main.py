@@ -6,7 +6,7 @@ import time
 import re
 from contextlib import contextmanager
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
 
 
 GREEN  = "\033[92m"
@@ -290,20 +290,6 @@ def get_user_home() -> Path:
     return Path.home()
 
 
-def get_all_human_users() -> list[tuple[str, Path]]:
-    users: list[tuple[str, Path]] = []
-    try:
-        with open("/etc/passwd") as f:
-            for line in f:
-                parts = line.split(":")
-                if len(parts) < 6: continue
-                name, uid, home = parts[0], int(parts[2]), Path(parts[5].strip())
-                if (uid == 0 or (uid >= 1000 and uid != 65534)) and home.is_dir():
-                    users.append((name, home))
-    except Exception: pass
-    return sorted(users, key=lambda u: (u[0] != "root", u[0]))
-
-
 def check_sudo_status() -> bool:
     return subprocess.run(['sudo', '-n', 'true'], capture_output=True).returncode == 0
 
@@ -494,7 +480,6 @@ def manage_large_files() -> None:
     clear_screen(); header("Advanced Large & Aged File Radar")
     home = get_user_home()
     
-    # 1. Size Validation Loop
     while True:
         center_print(f"{YELLOW}  [?] Enter minimum size (e.g., 500MB, 2GB, 1TB) [default: 100MB]:{RESET}")
         c = cols()
@@ -518,7 +503,6 @@ def manage_large_files() -> None:
             center_print(f"{RED}  [!] Please enter a valid size (e.g., 100MB, 1.5GB).{RESET}")
             time.sleep(1.2); print("\033[A\r\033[K" * 4, end="", flush=True)
 
-    # 2. Age Validation Loop
     while True:
         center_print(f"{YELLOW}  [?] Enter minimum age in days (press Enter to skip):{RESET}")
         c = cols()
@@ -535,7 +519,6 @@ def manage_large_files() -> None:
             center_print(f"{RED}  [!] Please enter a valid number of days.{RESET}")
             time.sleep(1.2); print("\033[A\r\033[K" * 4, end="", flush=True)
 
-    # 3. Path Validation Loop
     while True:
         center_print(f"{YELLOW}  [?] Enter scan path (default: {home}):{RESET}")
         c = cols()
@@ -660,7 +643,6 @@ def manage_journal_logs() -> None:
     except Exception: pass
     print()
 
-    # --- New Description Guide ---
     center_print(f"{WHITE}{BOLD}[HOW IT WORKS:]{RESET}")
     center_print(f"  {DIM}●{RESET} {BOLD}Vacuum by Time:{RESET} Keeps recent logs and erases the old ones.")
     center_print(f"    {DIM}(Example: '2days' keeps only the last 48 hours of history){RESET}")
@@ -726,9 +708,6 @@ def show_dry_run_help() -> None:
 
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  CRITICAL SYSTEM PACKAGES — these are NEVER touched under any circumstance
-# ─────────────────────────────────────────────────────────────────────────────
 _CRITICAL_PACKAGES: set[str] = {
     "linux-base", "linux-image", "linux-headers", "grub", "grub2",
     "grub-common", "grub-pc", "grub-efi", "systemd", "systemd-sysv",
@@ -746,7 +725,6 @@ def _detect_package_manager(pkg: str) -> str | None:
     Returns the package manager that owns the package:
     'apt', 'snap', 'flatpak', 'pip', or None if not found.
     """
-    # APT
     try:
         r = subprocess.run(
             ["dpkg-query", "-W", "-f=${Status}", pkg],
@@ -756,21 +734,18 @@ def _detect_package_manager(pkg: str) -> str | None:
             return "apt"
     except Exception:
         pass
-    # Snap
     try:
         r = subprocess.run(["snap", "list", pkg], capture_output=True, text=True, timeout=10)
         if r.returncode == 0 and pkg in r.stdout:
             return "snap"
     except Exception:
         pass
-    # Flatpak
     try:
         r = subprocess.run(["flatpak", "list", "--app"], capture_output=True, text=True, timeout=10)
         if r.returncode == 0 and pkg.lower() in r.stdout.lower():
             return "flatpak"
     except Exception:
         pass
-    # pip
     try:
         r = subprocess.run(
             ["pip3", "show", pkg], capture_output=True, text=True, timeout=10
@@ -807,7 +782,6 @@ def _get_apt_reverse_deps(pkg: str) -> list[str]:
         return []
 
 
-# Known aliases: snap/package name -> list of actual config/data directory names
 _PKG_ALIASES: dict[str, list[str]] = {
     "brave":            ["BraveSoftware", "brave", "brave-browser"],
     "brave-browser":    ["BraveSoftware", "brave", "brave-browser"],
@@ -851,10 +825,8 @@ def _collect_residuals(pkg: str) -> list[dict]:
             (home / f".{name}rc",           f"RC dotfile (~/.{name}rc)"),
         ]
 
-    # Snap-specific user data directory
     raw_candidates.append((home / "snap" / pkg, f"Snap user data (~/snap/{pkg})"))
 
-    # Glob: catch any subdir containing the pkg name (case-insensitive)
     for search_base, label_prefix, short_base in [
         (home / ".config",      "User config (glob)", "~/.config"),
         (home / ".local/share", "User data (glob)",   "~/.local/share"),
@@ -870,7 +842,6 @@ def _collect_residuals(pkg: str) -> list[dict]:
         except PermissionError:
             pass
 
-    # Deduplicate by resolved path, keep only existing
     seen: set[Path] = set()
     residuals: list[dict] = []
     for path, label in raw_candidates:
@@ -941,7 +912,6 @@ def _search_packages(query: str) -> list[tuple[str, str]]:
     results: list[tuple[str, str]] = []
     q = query.lower()
 
-    # APT
     try:
         r = subprocess.run(
             ["dpkg", "--get-selections"],
@@ -955,7 +925,6 @@ def _search_packages(query: str) -> list[tuple[str, str]]:
     except Exception:
         pass
 
-    # Snap
     try:
         r = subprocess.run(
             ["snap", "list"],
@@ -968,7 +937,6 @@ def _search_packages(query: str) -> list[tuple[str, str]]:
     except Exception:
         pass
 
-    # Flatpak
     try:
         r = subprocess.run(
             ["flatpak", "list", "--app", "--columns=application"],
@@ -983,7 +951,6 @@ def _search_packages(query: str) -> list[tuple[str, str]]:
     except Exception:
         pass
 
-    # pip
     try:
         r = subprocess.run(
             ["pip3", "list", "--format=columns"],
@@ -1020,7 +987,6 @@ def remove_program_and_residuals() -> None:
         wait_for_enter()
         return
 
-    # ── 1. Get program name ───────────────────────────────────────────────────
     while True:
         clear_screen(); header("Program Deep Removal & Residual Purge")
         center_print(f"{YELLOW}  [?] Enter the program name (or partial name) to remove (or press Enter to cancel):{RESET}")
@@ -1035,19 +1001,16 @@ def remove_program_and_residuals() -> None:
             wait_for_enter()
             return
 
-        # Sanitize: allow only alphanumeric, dash, dot, underscore, plus
         if not re.match(r'^[a-z0-9][a-z0-9+\-._]*$', raw):
             center_print(f"{RED}  [✗] Invalid input: '{raw}'. Aborting.{RESET}")
             time.sleep(2)
             continue
 
-        # Require at least 3 characters to avoid flooding results
         if len(raw) < 3:
             center_print(f"{RED}  [✗] Please type at least 3 characters.{RESET}")
             time.sleep(2)
             continue
 
-        # ── 1b. Search for matching installed packages ───────────────────────────
         candidates = _search_packages(raw)
 
         if not candidates:
@@ -1078,7 +1041,6 @@ def remove_program_and_residuals() -> None:
         center_print(f"  {GREEN}[✓]{RESET}  Selected: {BOLD}{pkg}{RESET}")
         print()
 
-    # ── 2. Hard block for critical packages ──────────────────────────────────
     if pkg in _CRITICAL_PACKAGES or any(pkg.startswith(cp) for cp in _CRITICAL_PACKAGES):
         center_print(f"{RED}  [✗] BLOCKED: '{pkg}' is a critical system package.{RESET}")
         center_print(f"{RED}       Removing it could render your system unbootable.{RESET}")
@@ -1089,7 +1051,6 @@ def remove_program_and_residuals() -> None:
     center_print(f"{CYAN}  [*] Analyzing '{pkg}'...{RESET}")
     print()
 
-    # ── 3. Detect package manager ─────────────────────────────────────────────
     pm = _detect_package_manager(pkg)
     if pm is None:
         center_print(f"{YELLOW}  [!] '{pkg}' is not installed via APT, Snap, Flatpak, or pip.{RESET}")
@@ -1099,7 +1060,6 @@ def remove_program_and_residuals() -> None:
         center_print(f"  {GREEN}[✓]{RESET}  Found via {BOLD}{pm.upper()}{RESET}")
         print()
 
-    # ── 4. Reverse dependency check (APT only) ────────────────────────────────
     critical_rdeps: list[str] = []
     normal_rdeps:   list[str] = []
     if pm == "apt":
@@ -1140,7 +1100,6 @@ def remove_program_and_residuals() -> None:
             center_print(f"  {GREEN}[✓]{RESET}  No reverse dependencies found. Safe to remove.")
         print()
 
-    # ── 5. Collect & display residuals ────────────────────────────────────────
     center_print(f"{CYAN}  [*] Scanning for residual files and directories...{RESET}")
     print()
     residuals = _collect_residuals(pkg)
@@ -1159,7 +1118,6 @@ def remove_program_and_residuals() -> None:
         center_print(f"  {GREEN}[✓]{RESET}  No residual files found.")
         print()
 
-    # ── 6. Confirm and execute removal ────────────────────────────────────────
     if pm is None and not residuals:
         center_print(f"{GREEN}  [✓] Nothing to remove. System is already clean.{RESET}")
         wait_for_enter()
@@ -1255,7 +1213,6 @@ def main_menu() -> None:
         center_print(f"{CYAN}  [+] Framework Status: {mode}  {DIM}|{RESET}  Privileges: {lock}  {DIM}|{RESET}  Mode: {dry}")
         print(); _divider(); print()
 
-        # ── Menu items ───────────────────────────────────────────────────────────
         menu_width = min(cols() - 4, 68)
         indent = max(0, (cols() - menu_width) // 2)
         def m(text: str) -> None:
