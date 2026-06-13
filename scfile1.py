@@ -899,6 +899,13 @@ def manage_memory_optimization() -> None:
           center_print(f"{RED} [✗] Error: This operation requires Sudo privileges.{RESET}")
           wait_for_enter(); return
 
+      center_print(f"{WHITE}{BOLD}[WHEN TO USE:]{RESET}")
+      center_print(f"  {DIM}●{RESET} System feels sluggish or unresponsive")
+      center_print(f"  {DIM}●{RESET} High RAM usage with cached data not releasing")
+      center_print(f"  {DIM}●{RESET} Swap is full despite available RAM")
+      center_print(f"  {DIM}●{RESET} After closing heavy applications (games, browsers, IDEs)")
+      print(); _divider(); print()
+
       center_print(f"{CYAN}  [*] Current Memory Snapshot:{RESET}")
       subprocess.run(['free', '-h'])
       print()
