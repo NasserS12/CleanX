@@ -893,6 +893,40 @@ def _collect_residuals(pkg: str) -> list[dict]:
         })
     return residuals
 
+def manage_memory_optimization() -> None:
+      clear_screen(); header("Engine Optimization: RAM & Swap Reset")
+      if not HAS_SUDO_PERM:
+          center_print(f"{RED} [✗] Error: This operation requires Sudo privileges.{RESET}")
+          wait_for_enter(); return
+
+      center_print(f"{CYAN}  [*] Current Memory Snapshot:{RESET}")
+      subprocess.run(['free', '-h'])
+      print()
+
+      center_print(f"{WHITE}{BOLD}[PROCEDURE:]{RESET}")
+      center_print(f"  {DIM}1.{RESET} Synchronize filesystem buffers (Safe-Write)")
+      center_print(f"  {DIM}2.{RESET} Flush PageCache, Dentries, and Inodes")
+      center_print(f"  {DIM}3.{RESET} Cycle Swap Architecture (Refresh slow memory)")
+      print()
+
+      if ask_yes_no(f"{YELLOW}  [?] Initiate memory optimization routine?{RESET}"):
+          center_print(f"\n{CYAN}  [*] Synchronizing buffers...{RESET}")
+          _run(['sync'], True)
+
+          center_print(f"{CYAN}  [*] Flushing RAM cache layers...{RESET}")
+          _run(['sh', '-c', 'echo 3 > /proc/sys/vm/drop_caches'], True)
+
+          center_print(f"{CYAN}  [*] Cycling Swap (Moving data to RAM)...{RESET}")
+          _run(['swapoff', '-a'], True)
+          _run(['swapon', '-a'], True)
+
+          center_print(f"\n{GREEN}  [✓] Optimization Complete.{RESET}")
+          center_print(f"{CYAN}  [*] New Memory Snapshot:{RESET}")
+          subprocess.run(['free', '-h'])
+      else:
+          center_print(f"\n{YELLOW}  [-] Optimization aborted.{RESET}")
+
+      wait_for_enter()
 
 def _search_packages(query: str) -> list[tuple[str, str]]:
     """Search all package managers for installed packages with names containing *query*.
@@ -1215,22 +1249,23 @@ def main_menu() -> None:
         m(f"  {GREEN}{BOLD}[5]{RESET}  Radar: Advanced Deep Search for Large & Aged Files")
         m(f"  {GREEN}{BOLD}[6]{RESET}  Vacuum: Systemd Journal Logs (Log Cleanup)  {lock}")
         m(f"  {GREEN}{BOLD}[7]{RESET}  Deep Removal: Program + All Residual Files  {lock}")
+        m(f"  {GREEN}{BOLD}[8]{RESET} Engine Optimization: RAM Cache & Swap Reset {lock}")
 
         dry_color = YELLOW if IS_DRY_RUN else DIM
         dry_label = "Disable" if IS_DRY_RUN else "Enable"
         print()
-        m(f"  {dry_color}{BOLD}[8]{RESET}  {dry_label} Dry Run Mode (No deletion)")
+        m(f"  {dry_color}{BOLD}[9]{RESET}  {dry_label} Dry Run Mode (No deletion)")
         m(f"  {WHITE}{BOLD}[H]{RESET}  Help / About Dry Run Mode")
 
         if not HAS_SUDO_PERM:
-            m(f"  {DIM}[9]  Elevate Session to Sudo{RESET}")
+            m(f"  {DIM}[10]  Elevate Session to Sudo{RESET}")
         print(); _divider(); print()
         m(f"  {RED}{BOLD}[0]{RESET}  {DIM}Exit CleanX{RESET}")
         print()
-        valid = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "H", "h"] + (["9"] if not HAS_SUDO_PERM else [])
+        valid = ["0", "1", "2", "3", "4", "5", "6", "7", "8","9", "H", "h"] + (["10"] if not HAS_SUDO_PERM else [])
         choice = ask_choice(valid)
         if choice == "1": manage_user_cache()
-        elif choice in ("2", "3", "4", "6", "7"):
+        elif choice in ("2", "3", "4", "6", "7", "8"):
             if not HAS_SUDO_PERM:
                 print(); center_print(f"{YELLOW}  [!] Action blocked: Sudo privileges required.{RESET}")
                 if ask_yes_no("  [?] Authenticate Sudo right now?"):
@@ -1240,14 +1275,15 @@ def main_menu() -> None:
             elif choice == "4": manage_orphaned_packages()
             elif choice == "6": manage_journal_logs()
             elif choice == "7": remove_program_and_residuals()
+            elif choice == "8": manage_memory_optimization()
         elif choice == "5": manage_large_files()
-        elif choice == "8":
+        elif choice == "9":
             IS_DRY_RUN = not IS_DRY_RUN
             center_print(f"{YELLOW}  [*] Dry Run Mode {'Enabled' if IS_DRY_RUN else 'Disabled'}.{RESET}")
             time.sleep(1.0)
         elif choice.upper() == "H":
             show_dry_run_help()
-        elif choice == "9": attempt_elevation()
+        elif choice == "10": attempt_elevation()
         elif choice == "0":
             print(); center_print(f"{GREEN}  [✓] Session terminated. Goodbye!{RESET}")
             sys.exit(0)
