@@ -1213,6 +1213,22 @@ def remove_program_and_residuals() -> None:
             print()
             center_print(f"{YELLOW}  [-] Residual files preserved.{RESET}")
 
+    elif residuals:
+        prompt_r = "Delete all residual files listed above?" if not IS_DRY_RUN else "Simulate residual deletion?"
+        if ask_yes_no(f"{YELLOW}  [?] {prompt_r}{RESET}", default_no=True):
+            print()
+            center_print(f"{CYAN}  [*] {'Purging' if not IS_DRY_RUN else 'Simulating purge of'} residual files...{RESET}\n")
+            for r in residuals:
+                ok = delete_path_content(r["path"], delete_root=True)
+                status = f"{GREEN}✓" if ok else f"{RED}✗"
+                center_print(f"    [{status}{RESET}]  {r['label']}")
+            print()
+            msg = "Residuals purged." if not IS_DRY_RUN else "Dry run complete. No residuals were removed."
+            center_print(f"{GREEN}  [✓] {msg}{RESET}")
+        else:
+            print()
+            center_print(f"{YELLOW}  [-] Residual files preserved.{RESET}")
+
     wait_for_enter()
 
 
