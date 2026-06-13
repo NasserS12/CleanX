@@ -5,5 +5,5 @@
 # Maximize security and zero-dependency overhead.
 #
 # No external pip packages are required to run this script.
-# Just run: python3 scfile.py
+# Just run: python3 main.py
 # =========================================================================

@@ -36,6 +36,8 @@
 | `4` | **Orphaned Package Discovery** | Detects and removes unused dependencies via `apt-get autoremove` |
 | `5` | **Large & Aged File Radar** | Advanced search for the largest and oldest files with custom size and age filters |
 | `6` | **Journal Log Vacuum** | Cleans systemd journal logs by time limit or size budget |
+| `7` | **Program Deep Removal** | Searches all package managers (APT/Snap/Flatpak/pip), checks reverse deps, and purges residual config/data files |
+| `8` | **RAM & Swap Reset** | Flushes page cache, dentries, and inodes; cycles swap to reclaim memory |
 
 ---
 
@@ -47,7 +49,7 @@ CleanX includes a **Dry Run** mode that simulates every operation without touchi
 - No system commands are executed
 - A full report is shown of everything that *would* happen
 
-Toggle it on or off from the main menu by pressing `8`.
+Toggle it on or off from the main menu by pressing `9`.
 
 ---
 
@@ -67,10 +69,10 @@ git clone https://github.com/your-username/cleanx.git
 cd cleanx
 
 # Run the script
-python3 scfile.py
+python3 main.py
 
 # Or with sudo directly
-sudo python3 scfile.py
+sudo python3 main.py
 ```
 
 > If not launched with `sudo`, CleanX will prompt for elevation when needed.
@@ -92,7 +94,7 @@ CleanX includes a protection layer to prevent destructive mistakes:
 
 ```
 cleanx/
-└── scfile.py        # Main script
+└── main.py          # Main script
 ```
 
 ---
