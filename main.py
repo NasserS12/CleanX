@@ -863,7 +863,7 @@ def _collect_residuals(pkg: str, pm: str | None = None) -> list[dict]:
         try:
             if search_base.is_dir():
                 for child in search_base.iterdir():
-                    if glob_term in child.name.lower():
+                    if re.search(r'\b' + re.escape(glob_term) + r'\b', child.name.lower()):
                         already = any(p == child for p, _ in raw_candidates)
                         if not already:
                             raw_candidates.append((child, f"{label_prefix} ({short_base}/{child.name})"))
