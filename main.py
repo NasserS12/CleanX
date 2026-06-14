@@ -703,7 +703,7 @@ def show_dry_run_help() -> None:
     center_print("  3. 100% peace of mind for new users.")
     print()
     _divider()
-    center_print(f"{DIM}Press [8] on the main menu to toggle this mode on/off.{RESET}")
+    center_print(f"{DIM}Press [9] on the main menu to toggle this mode on/off.{RESET}")
     wait_for_enter()
 
 
@@ -723,7 +723,11 @@ _CRITICAL_PACKAGES: set[str] = {
 def _detect_package_manager(pkg: str) -> str | None:
     """
     Returns the package manager that owns the package:
-    'apt', 'snap', 'flatpak', 'pip', or None if not found.
+    'apt', 'snap', 'flatpak', or None if not found.
+
+    For flatpak: pkg may be a full app-ID (e.g. com.mitchellh.micro)
+    or a short name (e.g. micro). We match against the last dotted
+    component so both forms are recognised correctly.
     """
     try:
         r = subprocess.run(
@@ -734,24 +738,28 @@ def _detect_package_manager(pkg: str) -> str | None:
             return "apt"
     except Exception:
         pass
+
     try:
         r = subprocess.run(["snap", "list", pkg], capture_output=True, text=True, timeout=10)
         if r.returncode == 0 and pkg in r.stdout:
             return "snap"
     except Exception:
         pass
-    try:
-        r = subprocess.run(["flatpak", "list", "--app"], capture_output=True, text=True, timeout=10)
-        if r.returncode == 0 and pkg.lower() in r.stdout.lower():
-            return "flatpak"
-    except Exception:
-        pass
+
     try:
         r = subprocess.run(
-            ["pip3", "show", pkg], capture_output=True, text=True, timeout=10
+            ["flatpak", "list", "--app", "--columns=application"],
+            capture_output=True, text=True, timeout=10
         )
         if r.returncode == 0:
-            return "pip"
+            pkg_lower = pkg.lower()
+            for line in r.stdout.splitlines():
+                app_id = line.strip()
+                if not app_id:
+                    continue
+                short = app_id.split(".")[-1].lower()
+                if app_id.lower() == pkg_lower or short == pkg_lower:
+                    return "flatpak"
     except Exception:
         pass
     return None
@@ -805,16 +813,35 @@ _PKG_ALIASES: dict[str, list[str]] = {
     "skype":            ["skypeforlinux", "Skype"],
 }
 
-
-def _collect_residuals(pkg: str) -> list[dict]:
+def _collect_residuals(pkg: str, pm: str | None = None) -> list[dict]:
     """
     Builds a list of residual paths associated with `pkg`.
     Checks standard XDG dirs, Snap user data, known aliases, and
     performs a glob search in ~/.config / ~/.local/share for partial matches.
+
+    For Flatpak: pkg is the full App ID (e.g. com.mitchellh.micro).
+    The primary sandbox data lives at ~/.var/app/<AppID>/ and contains
+    all user config/cache/data. We also derive the short name from the
+    last dotted segment to search common XDG dirs.
     """
     home = get_user_home()
-    search_names: list[str] = list(dict.fromkeys([pkg] + _PKG_ALIASES.get(pkg, [])))
+
+    if pm == "flatpak" and "." in pkg:
+        short_name = pkg.split(".")[-1]
+        search_names: list[str] = list(dict.fromkeys(
+            [pkg, short_name]
+            + _PKG_ALIASES.get(short_name, [])
+            + _PKG_ALIASES.get(pkg, [])
+        ))
+    else:
+        short_name = pkg
+        search_names = list(dict.fromkeys([pkg] + _PKG_ALIASES.get(pkg, [])))
+
     raw_candidates: list[tuple[Path, str]] = []
+
+    if pm == "flatpak":
+        flatpak_var = home / ".var" / "app" / pkg
+        raw_candidates.append((flatpak_var, f"Flatpak user data (~/.var/app/{pkg})"))
 
     for name in search_names:
         raw_candidates += [
@@ -827,6 +854,7 @@ def _collect_residuals(pkg: str) -> list[dict]:
 
     raw_candidates.append((home / "snap" / pkg, f"Snap user data (~/snap/{pkg})"))
 
+    glob_term = short_name.lower()
     for search_base, label_prefix, short_base in [
         (home / ".config",      "User config (glob)", "~/.config"),
         (home / ".local/share", "User data (glob)",   "~/.local/share"),
@@ -835,7 +863,7 @@ def _collect_residuals(pkg: str) -> list[dict]:
         try:
             if search_base.is_dir():
                 for child in search_base.iterdir():
-                    if pkg.lower() in child.name.lower():
+                    if glob_term in child.name.lower():
                         already = any(p == child for p, _ in raw_candidates)
                         if not already:
                             raw_candidates.append((child, f"{label_prefix} ({short_base}/{child.name})"))
@@ -951,18 +979,6 @@ def _search_packages(query: str) -> list[tuple[str, str]]:
     except Exception:
         pass
 
-    try:
-        r = subprocess.run(
-            ["pip3", "list", "--format=columns"],
-            capture_output=True, text=True, timeout=15
-        )
-        for line in r.stdout.splitlines()[2:]:
-            name = line.split()[0] if line.split() else ""
-            if name and name.lower().startswith(q):
-                results.append(("pip", name))
-    except Exception:
-        pass
-
     seen: set[str] = set()
     unique: list[tuple[str, str]] = []
     for pm, name in results:
@@ -1053,7 +1069,7 @@ def remove_program_and_residuals() -> None:
 
     pm = _detect_package_manager(pkg)
     if pm is None:
-        center_print(f"{YELLOW}  [!] '{pkg}' is not installed via APT, Snap, Flatpak, or pip.{RESET}")
+        center_print(f"{YELLOW}  [!] '{pkg}' is not installed via APT, Snap, or Flatpak.{RESET}")
         center_print(f"{DIM}       Proceeding to scan for residual files only...{RESET}")
         print()
     else:
@@ -1102,7 +1118,7 @@ def remove_program_and_residuals() -> None:
 
     center_print(f"{CYAN}  [*] Scanning for residual files and directories...{RESET}")
     print()
-    residuals = _collect_residuals(pkg)
+    residuals = _collect_residuals(pkg, pm=pm)
 
     if residuals:
         center_print(f"{YELLOW}  [!] Residual footprint found:{RESET}\n")
@@ -1143,8 +1159,6 @@ def remove_program_and_residuals() -> None:
                 ok = _run(["snap", "remove", "--purge", pkg], use_sudo=True)
             elif pm == "flatpak":
                 ok = _run(["flatpak", "uninstall", "-y", pkg], use_sudo=True)
-            elif pm == "pip":
-                ok = _run(["pip3", "uninstall", "-y", pkg], use_sudo=False)
 
             status = f"{GREEN}[✓]{RESET}" if ok else f"{RED}[✗]{RESET}"
             msg    = "removed successfully" if ok else "removal encountered an error"
