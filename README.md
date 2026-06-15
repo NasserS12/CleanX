@@ -65,7 +65,7 @@ Toggle it on or off from the main menu by pressing `9`.
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/cleanx.git
+git clone https://github.com/NasserS12/cleanx.git
 cd cleanx
 
 # Run the script
