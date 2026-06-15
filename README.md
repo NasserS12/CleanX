@@ -90,14 +90,6 @@ CleanX includes a protection layer to prevent destructive mistakes:
 
 ---
 
-## Project Structure
-
-```
-cleanx/
-└── main.py          # Main script
-```
-
----
 
 ## Notes
 
