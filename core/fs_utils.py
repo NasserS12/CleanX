@@ -10,9 +10,54 @@ import re
 from pathlib import Path
 
 from core import state
-from core.sudo import check_sudo_status
+from core.sudo import check_sudo_status, get_user_home
 from ui.colors import YELLOW, RED, GREEN, BOLD, DIM, RESET
 from ui.terminal import center_print, _divider
+
+# Directories that must never be deleted, no matter what feature or
+# scan produced the path. Checked against the *resolved* path (i.e.
+# after following any symlink), so a symlink planted inside an
+# otherwise-allowed cache directory that points into one of these
+# cannot be used to smuggle a deletion into a protected location.
+#
+# NOTE: the user's home directory (which is /root when running as
+# real root with no SUDO_USER) is deliberately NOT in this list — it
+# is protected separately, as an exact match only, in
+# _is_protected_path() below. If "/root" were listed here with
+# prefix-matching, it would block cleaning ~/.cache, ~/.config, etc.
+# for a real-root session, defeating the User Cache Sweeper feature.
+#
+# This is the actual implementation backing the "Built-in Safety"
+# claims in README.md — see that file for the user-facing description.
+_PROTECTED_PREFIXES: tuple[str, ...] = (
+    "/etc", "/usr", "/bin", "/sbin",
+    "/lib", "/lib32", "/lib64",
+    "/boot", "/proc", "/sys", "/dev",
+)
+
+
+def _is_protected_path(path: Path) -> bool:
+    """True if `path` (after resolving symlinks) is a critical OS
+    directory or the user's own home directory.
+
+    Only meant to guard deletion of REAL files/directories. Deleting a
+    symlink itself never touches whatever it points to, so callers
+    should skip this check when the target being removed is a
+    symlink (see delete_path_content below).
+    """
+    try:
+        resolved = path.resolve()
+    except Exception:
+        resolved = path
+    resolved_str = str(resolved)
+
+    if resolved_str == str(get_user_home()):
+        return True
+
+    return any(
+        resolved_str == prefix or resolved_str.startswith(prefix + "/")
+        for prefix in _PROTECTED_PREFIXES
+    )
 
 
 def format_size(b: int) -> str:
@@ -104,32 +149,57 @@ def _run(cmd: list[str], use_sudo: bool = False) -> bool:
         return False
 
 
-def delete_path_content(path: Path, delete_root: bool = False) -> bool:
-    if not path.exists(): return True
+def _perform_single_delete(path: Path, sudo: bool) -> bool:
+    """Delete one filesystem entry (file, symlink, or directory),
+    applying the protected-path check and Dry Run reporting in the
+    correct order: protection is checked FIRST, so Dry Run output
+    accurately shows [BLOCKED] for protected paths instead of
+    claiming they'd be deleted.
+    """
+    is_link = path.is_symlink()
+    if not is_link and _is_protected_path(path):
+        center_print(f"    {RED}[BLOCKED] Refusing to delete protected path: {path}{RESET}")
+        return False
+
     if state.IS_DRY_RUN:
-        target = "file" if path.is_file() else "directory"
-        center_print(f"    {DIM}[DRY RUN] Would delete {target}: {path}{RESET}")
+        kind = "symlink" if is_link else ("file" if path.is_file() else "directory")
+        center_print(f"    {DIM}[DRY RUN] Would delete {kind}: {path}{RESET}")
         return True
-    sudo = check_sudo_status()
+
+    if is_link or path.is_file():
+        if sudo: return _run(['rm', '-f', str(path)], use_sudo=True)
+        path.unlink(); return True
+    else:
+        if sudo: return _run(['rm', '-rf', str(path)], use_sudo=True)
+        shutil.rmtree(path, ignore_errors=True); return True
+
+
+def delete_path_content(path: Path, delete_root: bool = False) -> bool:
+    # NOTE: `path.exists()` follows symlinks, so it returns False for a
+    # BROKEN symlink (one whose target is missing) even though the
+    # symlink itself is still there on disk. Without the extra
+    # `or path.is_symlink()` check, this function would silently no-op
+    # on every broken symlink passed to it — which is exactly the
+    # "Broken System Symlinks" cleanup feature's main use case. This
+    # was a pre-existing bug in the original single-file version,
+    # discovered while testing the protected-path fix below.
+    if not path.exists() and not path.is_symlink():
+        return True
+    sudo = False if state.IS_DRY_RUN else check_sudo_status()
     try:
         if path.is_file() or path.is_symlink():
-            if sudo: return _run(['rm', '-f', str(path)], use_sudo=True)
-            path.unlink(); return True
+            return _perform_single_delete(path, sudo)
         if delete_root:
-            if sudo: return _run(['rm', '-rf', str(path)], use_sudo=True)
-            shutil.rmtree(path, ignore_errors=True); return True
+            return _perform_single_delete(path, sudo)
         ok = True
         for child in path.iterdir():
             try:
-                if child.is_dir() and not child.is_symlink():
-                    if sudo: ok &= _run(['rm', '-rf', str(child)], use_sudo=True)
-                    else: shutil.rmtree(child, ignore_errors=True)
-                else:
-                    if sudo: ok &= _run(['rm', '-f', str(child)], use_sudo=True)
-                    else: child.unlink(missing_ok=True)
-            except OSError: ok = False
+                ok &= _perform_single_delete(child, sudo)
+            except OSError:
+                ok = False
         return ok
-    except PermissionError: return False
+    except PermissionError:
+        return False
 
 
 def _find_recursive_targets(root: Path, name_pattern: str, skip_folders: set[str] = None) -> tuple[list[Path], int]:

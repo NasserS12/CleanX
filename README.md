@@ -47,7 +47,7 @@ CleanX includes a **Dry Run** mode that simulates every operation without touchi
 
 - No files are deleted
 - No system commands are executed
-- A full report is shown of everything that *would* happen
+- A full report is shown of everything that *would* happen — including anything that would have been **blocked** by the safety checks below, so a Dry Run gives you an accurate preview of the real run
 
 Toggle it on or off from the main menu by pressing `9`.
 
@@ -79,17 +79,47 @@ sudo python3 main.py
 
 ---
 
-## Built-in Safety
+## Project Structure
 
-CleanX includes a protection layer to prevent destructive mistakes:
+The codebase is organized by responsibility. `main.py` is the entry point only — it wires together the menu loop and delegates all real work to the modules below.
 
-- **Critical system paths are blocked** — `/etc`, `/usr`, `/bin`, `/boot`, and others cannot be deleted
-- **Home directory is protected** from full removal
-- **Virtual filesystems are off-limits** — `/proc`, `/sys`, `/dev` cannot be scanned or touched
-- **Symlink traversal is prevented** via `path.resolve()` to guard against path manipulation
+```
+cleanx/
+├── main.py                     # Entry point — main menu & startup banner
+├── requirements.txt
+├── ui/
+│   ├── colors.py                 # ANSI colors
+│   └── terminal.py               # Echo control, centered printing, prompts
+├── core/
+│   ├── state.py                  # Shared app state (sudo status, Dry Run flag)
+│   ├── sudo.py                   # Privilege checks & real-user home resolution
+│   └── fs_utils.py                # Size scanning, safe deletion, protected-path guard
+└── modules/
+    ├── user_cache.py              # [1] User Cache Sweeper
+    ├── system_cache.py            # [2] System Cache Sweeper
+    ├── snap_cleanup.py            # [3] Snap Version Scrubber
+    ├── orphaned_packages.py       # [4] Orphaned Package Discovery
+    ├── large_files.py             # [5] Large & Aged File Radar
+    ├── journal_logs.py            # [6] Journal Log Vacuum
+    ├── program_removal.py         # [7] Program Deep Removal
+    ├── memory_optimization.py     # [8] RAM & Swap Reset
+    └── help.py                    # Dry Run help screen
+```
 
 ---
 
+## Built-in Safety
+
+CleanX includes a protection layer, implemented in `core/fs_utils.py`, to prevent destructive mistakes. Every deletion in the app — regardless of which feature triggered it — goes through this single function, so the guarantees below apply uniformly:
+
+- **Critical system paths are blocked.** `delete_path_content()` refuses to delete anything that resolves under `/etc`, `/usr`, `/bin`, `/sbin`, `/lib`, `/lib32`, `/lib64`, `/boot`, `/proc`, `/sys`, or `/dev` — no matter which feature or user-supplied path produced the request. A blocked attempt prints `[BLOCKED]` and is reported the same way in both Dry Run and real mode.
+- **Home directory is protected from full removal.** The resolved target is compared against the current user's home directory (correctly resolved even when running via `sudo`); an exact match is refused. Subdirectories and their contents (e.g. `~/.cache/...`) remain cleanable as normal — only removing the home directory *itself* is blocked.
+- **Symlink traversal is prevented via `path.resolve()`.** Before checking a real file or directory against the protected list above, its path is fully resolved (following any symlinks). A symlink planted inside an otherwise-allowed cache folder that points into a protected location cannot be used to smuggle a deletion into that location.
+- **Removing a symlink itself is always allowed**, regardless of what it points to — unlinking a symlink never touches its target, which is what makes the "Broken System Symlinks" cleanup (part of the User Cache Sweeper) work correctly even for dangling links that "point at" a protected path.
+
+**One deliberate exception, documented here for clarity:** the RAM & Swap Reset feature (`[8]`) intentionally writes to `/proc/sys/vm/drop_caches` as part of a standard, well-known Linux technique for releasing page cache. This is a narrow, hardcoded write — not a deletion and not a user-directed scan of `/proc` — so it is unaffected by (and does not need to be covered by) the deletion guard above.
+
+---
 
 ## Notes
 
