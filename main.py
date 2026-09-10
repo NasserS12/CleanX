@@ -25,34 +25,16 @@ from modules.memory_optimization import manage_memory_optimization
 from modules.help import show_dry_run_help
 
 
+__version__ = "1.1.0"
+
+
 def app_logo() -> None:
-    columns = cols()
-    logo_lines = [
-        f"{CYAN} ██████╗██╗     ███████╗ █████╗ ███╗   ██╗██╗  ██╗{RESET}",
-        f"{CYAN}██╔════╝██║     ██╔════╝██╔══██╗████╗  ██║╚██╗██╔╝{RESET}",
-        f"{WHITE}██║     ██║     █████╗  ███████║██╔██╗ ██║ ╚███╔╝ {RESET}",
-        f"{WHITE}██║     ██║     ██╔══╝  ██╔══██║██║╚██╗██║ ██╔██╗ {RESET}",
-        f"{GREEN}╚██████╗███████╗███████╗██║  ██║██║ ╚████║██╔╝ ██╗{RESET}",
-        f"{GREEN} ╚═════╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝{RESET}",
-    ]
-    logo_width = 63
     print()
-    if columns >= logo_width:
-        for line in logo_lines:
-            plain = re.sub(r'\033\[[0-9;]*m', '', line)
-            padding = max(0, (columns - len(plain)) // 2)
-            print(" " * padding + line)
-        slogan_text = "High-Performance Cache Analytics & Deep Scrub for Ubuntu Systems"
-        slogan_colored = f"{BOLD}{WHITE}{slogan_text}{RESET}"
-        divider_colored = f"{YELLOW}{'─' * len(slogan_text)}{RESET}"
-        print()
-        plain_slogan_pad = max(0, (columns - len(slogan_text)) // 2)
-        print(" " * plain_slogan_pad + slogan_colored)
-        print(" " * plain_slogan_pad + divider_colored)
-    else:
-        center_print(f"{CYAN}{BOLD}╔═══ CleanX ═══╗{RESET}")
-        center_print(f"{BOLD}{WHITE}Cache & Deep Scrub Tool{RESET}")
-    print("\n")
+    plain_brand = "◆ CleanX   Cache Analytics & Deep Scrub for Ubuntu Systems"
+    center_print(f"{CYAN}{BOLD}◆ CleanX{RESET}   {DIM}Cache Analytics & Deep Scrub for Ubuntu Systems{RESET}")
+    center_print(f"{YELLOW}{'─' * len(plain_brand)}{RESET}")
+    center_print(f"{DIM}v{__version__} · Dev by Nasser{RESET}")
+    print()
 
 
 def main_menu() -> None:
@@ -70,42 +52,50 @@ def main_menu() -> None:
         else:
             if not check_sudo_status() and os.getuid() != 0: state.HAS_SUDO_PERM = False
         clear_screen(); app_logo()
-        mode = f"{GREEN}{BOLD}Privileged{RESET}" if state.HAS_SUDO_PERM else f"{YELLOW}{BOLD}Restricted{RESET}"
-        lock = f"{GREEN}[Unlocked]{RESET}" if state.HAS_SUDO_PERM else f"{RED}[Locked]{RESET}"
-        dry  = f"{YELLOW}{BOLD}[DRY RUN ACTIVE]{RESET}" if state.IS_DRY_RUN else f"{DIM}[Real Mode]{RESET}"
+        mode      = f"{GREEN}{BOLD}Privileged{RESET}" if state.HAS_SUDO_PERM else f"{YELLOW}{BOLD}Restricted{RESET}"
+        lock_word = f"{GREEN}Unlocked{RESET}" if state.HAS_SUDO_PERM else f"{RED}Locked{RESET}"
+        dry_word  = f"{YELLOW}{BOLD}Dry Run{RESET}" if state.IS_DRY_RUN else f"{DIM}Real Mode{RESET}"
+        sudo_tag  = "" if state.HAS_SUDO_PERM else f"  {DIM}(sudo){RESET}"
 
-        center_print(f"{CYAN}  [+] Framework Status: {mode}  {DIM}|{RESET}  Privileges: {lock}  {DIM}|{RESET}  Mode: {dry}")
+        center_print(
+            f"{DIM}[{RESET}{mode}{DIM}]{RESET}  {DIM}[{RESET}{lock_word}{DIM}]{RESET}  {DIM}[{RESET}{dry_word}{DIM}]{RESET}"
+        )
         print(); _divider(); print()
 
         menu_width = min(cols() - 4, 68)
         indent = max(0, (cols() - menu_width) // 2)
-        def m(text: str) -> None:
-            plain = re.sub(r'\033\[[0-9;]*m', '', text)
+        def m(text: str, pad: int = 0) -> None:
+            line = " " * pad + text
+            plain = re.sub(r'\033\[[0-9;]*m', '', line)
             if len(plain) > menu_width:
-                print(" " * indent + text)
+                print(" " * indent + line)
             else:
-                print(" " * indent + text + " " * max(0, menu_width - len(plain)))
+                print(" " * indent + line + " " * max(0, menu_width - len(plain)))
 
-        m(f"  {GREEN}{BOLD}[1]{RESET}  Deep Scan & Purge: User Profile Cache")
-        m(f"  {GREEN}{BOLD}[2]{RESET}  Integrated Purge: System Engine Cache  {lock}")
-        m(f"  {GREEN}{BOLD}[3]{RESET}  Architectural Scrub: Remove Old Snap Revisions  {lock}")
-        m(f"  {GREEN}{BOLD}[4]{RESET}  Discovery: Find & Purge Orphaned Packages  {lock}")
-        m(f"  {GREEN}{BOLD}[5]{RESET}  Radar: Advanced Deep Search for Large & Aged Files")
-        m(f"  {GREEN}{BOLD}[6]{RESET}  Vacuum: Systemd Journal Logs (Log Cleanup)  {lock}")
-        m(f"  {GREEN}{BOLD}[7]{RESET}  Deep Removal: Program + All Residual Files  {lock}")
-        m(f"  {GREEN}{BOLD}[8]{RESET} Engine Optimization: RAM Cache & Swap Reset {lock}")
-
+        m(f"{CYAN}{BOLD}CACHE & STORAGE{RESET}")
+        m(f"{GREEN}{BOLD}[1]{RESET} Deep Scan & Purge · User Profile Cache", pad=1)
+        m(f"{GREEN}{BOLD}[2]{RESET} Integrated Purge · System Engine Cache{sudo_tag}", pad=1)
+        print()
+        m(f"{CYAN}{BOLD}PACKAGES & PROGRAMS{RESET}")
+        m(f"{GREEN}{BOLD}[3]{RESET} Snap Version Scrub · Old Revisions{sudo_tag}", pad=1)
+        m(f"{GREEN}{BOLD}[4]{RESET} Orphaned Package Discovery{sudo_tag}", pad=1)
+        m(f"{GREEN}{BOLD}[7]{RESET} Program Deep Removal · Residual Files{sudo_tag}", pad=1)
+        print()
+        m(f"{CYAN}{BOLD}SYSTEM{RESET}")
+        m(f"{GREEN}{BOLD}[5]{RESET} Large & Aged File Radar", pad=1)
+        m(f"{GREEN}{BOLD}[6]{RESET} Journal Log Vacuum{sudo_tag}", pad=1)
+        m(f"{GREEN}{BOLD}[8]{RESET} RAM Cache & Swap Reset{sudo_tag}", pad=1)
+        print()
+        m(f"{CYAN}{BOLD}SESSION{RESET}")
         dry_color = YELLOW if state.IS_DRY_RUN else DIM
         dry_label = "Disable" if state.IS_DRY_RUN else "Enable"
-        print()
-        m(f"  {dry_color}{BOLD}[9]{RESET}  {dry_label} Dry Run Mode (No deletion)")
-        m(f"  {WHITE}{BOLD}[H]{RESET}  Help / About Dry Run Mode")
-
+        m(f"{dry_color}{BOLD}[9]{RESET} {dry_label} Dry Run Mode", pad=1)
+        m(f"{WHITE}{BOLD}[H]{RESET} Help / About Dry Run Mode", pad=1)
         if not state.HAS_SUDO_PERM:
-            m(f"  {DIM}[10]  Elevate Session to Sudo{RESET}")
+            m(f"{DIM}[10] Elevate Session to Sudo{RESET}", pad=1)
+        m(f"{RED}{BOLD}[0]{RESET} Exit CleanX", pad=1)
+
         print(); _divider(); print()
-        m(f"  {RED}{BOLD}[0]{RESET}  {DIM}Exit CleanX{RESET}")
-        print()
         valid = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "H", "h"] + (["10"] if not state.HAS_SUDO_PERM else [])
         choice = ask_choice(valid)
         if choice == "1": manage_user_cache()
