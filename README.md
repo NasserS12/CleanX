@@ -121,7 +121,15 @@ CleanX includes a protection layer, implemented in `core/fs_utils.py`, to preven
 
 ---
 
-## Notes
+## Development Notes
+
+This project was built with AI-assisted development (Claude) under my
+direction — I defined the architecture, reviewed every change, wrote
+the test cases, and made all design decisions. AI was used as a
+pair-programming tool, not an autonomous author.
+
+
+## Usage Notes
 
 - CleanX is designed for **Ubuntu** and Debian-based distributions.
 - Some features (Snap, APT) may not be available on other distros.
