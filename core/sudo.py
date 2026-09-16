@@ -5,8 +5,8 @@ import time
 from pathlib import Path
 
 from core import state
-from ui.colors import GREEN, YELLOW, RED, CYAN, BOLD, RESET
-from ui.terminal import clear_screen, center_print, ask_yes_no, header  # noqa: F401
+from ui.colors import BOLD, CYAN, GREEN, RED, RESET, YELLOW
+from ui.terminal import ask_yes_no, center_print, clear_screen, header  # noqa: F401
 
 
 def get_user_home() -> Path:

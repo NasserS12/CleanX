@@ -4,8 +4,8 @@ import subprocess
 
 from core import state
 from core.fs_utils import _run
-from ui.colors import CYAN, YELLOW, RED, GREEN, DIM, RESET
-from ui.terminal import clear_screen, header, center_print, ask_yes_no, wait_for_enter
+from ui.colors import CYAN, DIM, GREEN, RED, RESET, YELLOW
+from ui.terminal import ask_yes_no, center_print, clear_screen, header, wait_for_enter
 
 
 def clean_snap_old_versions() -> None:

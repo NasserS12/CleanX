@@ -10,10 +10,19 @@ import time
 from pathlib import Path
 
 from core import state
-from core.fs_utils import format_size, _walk_size, delete_path_content, _run , _apt_env
+from core.fs_utils import _apt_env, _run, _walk_size, delete_path_content, format_size
 from core.sudo import get_user_home
-from ui.colors import CYAN, YELLOW, RED, GREEN, WHITE, BOLD, DIM, RESET
-from ui.terminal import clear_screen, header, center_print, cols, ask_choice, ask_yes_no, wait_for_enter, _divider
+from ui.colors import BOLD, CYAN, DIM, GREEN, RED, RESET, YELLOW
+from ui.terminal import (
+    _divider,
+    ask_choice,
+    ask_yes_no,
+    center_print,
+    clear_screen,
+    cols,
+    header,
+    wait_for_enter,
+)
 
 _CRITICAL_PACKAGES: set[str] = {
     "linux-base", "linux-image", "linux-headers", "grub", "grub2",

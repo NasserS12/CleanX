@@ -3,8 +3,17 @@ import subprocess
 
 from core import state
 from core.fs_utils import _run
-from ui.colors import CYAN, YELLOW, RED, GREEN, WHITE, BOLD, DIM, RESET
-from ui.terminal import clear_screen, header, center_print, cols, _divider, ask_choice, ask_yes_no, wait_for_enter
+from ui.colors import BOLD, CYAN, DIM, GREEN, RED, RESET, WHITE, YELLOW
+from ui.terminal import (
+    _divider,
+    ask_choice,
+    ask_yes_no,
+    center_print,
+    clear_screen,
+    cols,
+    header,
+    wait_for_enter,
+)
 
 
 def manage_journal_logs() -> None:

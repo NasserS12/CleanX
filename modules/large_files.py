@@ -1,14 +1,14 @@
 """Module [5]: Advanced Large & Aged File Radar."""
-import re
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
 from core import state
 from core.fs_utils import format_size
 from core.sudo import get_user_home
-from ui.colors import CYAN, YELLOW, RED, GREEN, DIM, RESET
-from ui.terminal import clear_screen, header, center_print, cols, wait_for_enter
+from ui.colors import CYAN, DIM, GREEN, RED, RESET, YELLOW
+from ui.terminal import center_print, clear_screen, cols, header, wait_for_enter
 
 
 def manage_large_files() -> None:

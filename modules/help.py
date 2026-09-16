@@ -1,6 +1,6 @@
 """Help screen: About Dry Run Mode."""
-from ui.colors import CYAN, YELLOW, GREEN, WHITE, BOLD, DIM, RESET
-from ui.terminal import clear_screen, header, center_print, _divider, wait_for_enter
+from ui.colors import BOLD, CYAN, DIM, GREEN, RESET, WHITE, YELLOW
+from ui.terminal import _divider, center_print, clear_screen, header, wait_for_enter
 
 
 def show_dry_run_help() -> None:

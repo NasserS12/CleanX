@@ -4,15 +4,15 @@ execution wrapper (dry-run aware), and deletion helpers.
 Used by nearly every feature module.
 """
 import os
+import re
 import shutil
 import subprocess
-import re
 from pathlib import Path
 
 from core import state
 from core.sudo import check_sudo_status, get_user_home
-from ui.colors import YELLOW, RED, GREEN, BOLD, DIM, RESET
-from ui.terminal import center_print, _divider
+from ui.colors import BOLD, DIM, GREEN, RED, RESET, YELLOW
+from ui.terminal import _divider, center_print
 
 # Directories that must never be deleted, no matter what feature or
 # scan produced the path. Checked against the *resolved* path (i.e.

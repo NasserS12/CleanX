@@ -1,6 +1,7 @@
-import pytest 
-from core.fs_utils import _is_protected_path
 from pathlib import Path
+
+from core.fs_utils import _is_protected_path
+
 
 def test_paths():
     result = _is_protected_path(Path("/etc/passwd"))

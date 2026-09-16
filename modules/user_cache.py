@@ -3,12 +3,15 @@ from pathlib import Path
 
 from core import state
 from core.fs_utils import (
-    scan_described_paths, print_described_table, delete_path_content,
-    format_size, _find_recursive_targets,
+    _find_recursive_targets,
+    delete_path_content,
+    format_size,
+    print_described_table,
+    scan_described_paths,
 )
 from core.sudo import get_user_home
-from ui.colors import CYAN, YELLOW, RED, GREEN, RESET
-from ui.terminal import clear_screen, header, center_print, ask_yes_no, wait_for_enter
+from ui.colors import CYAN, GREEN, RED, RESET, YELLOW
+from ui.terminal import ask_yes_no, center_print, clear_screen, header, wait_for_enter
 
 
 def manage_user_cache() -> None:
