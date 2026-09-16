@@ -1,7 +1,6 @@
-import pytest 
-from core.fs_utils import delete_path_content
-from pathlib import Path
 from core import state
+from core.fs_utils import delete_path_content
+
 
 def test_delete_regular_file(monkeypatch, tmp_path):
     monkeypatch.setattr("core.fs_utils.check_sudo_status", lambda: False)

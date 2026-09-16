@@ -3,8 +3,15 @@ import subprocess
 
 from core import state
 from core.fs_utils import _run
-from ui.colors import CYAN, YELLOW, RED, GREEN, WHITE, BOLD, DIM, RESET
-from ui.terminal import clear_screen, header, center_print, _divider, ask_yes_no, wait_for_enter
+from ui.colors import BOLD, CYAN, DIM, GREEN, RED, RESET, WHITE, YELLOW
+from ui.terminal import (
+    _divider,
+    ask_yes_no,
+    center_print,
+    clear_screen,
+    header,
+    wait_for_enter,
+)
 
 
 def manage_memory_optimization() -> None:

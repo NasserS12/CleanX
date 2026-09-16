@@ -10,20 +10,18 @@ import sys
 import time
 
 from core import state
-from core.sudo import check_sudo_status, attempt_elevation
-from ui.colors import GREEN, YELLOW, RED, CYAN, WHITE, BOLD, DIM, RESET
-from ui.terminal import clear_screen, cols, center_print, _divider, ask_choice
-
-from modules.user_cache import manage_user_cache
-from modules.system_cache import manage_system_cache
-from modules.snap_cleanup import clean_snap_old_versions
-from modules.orphaned_packages import manage_orphaned_packages
-from modules.large_files import manage_large_files
-from modules.journal_logs import manage_journal_logs
-from modules.program_removal import remove_program_and_residuals
-from modules.memory_optimization import manage_memory_optimization
+from core.sudo import attempt_elevation, check_sudo_status
 from modules.help import show_dry_run_help
-
+from modules.journal_logs import manage_journal_logs
+from modules.large_files import manage_large_files
+from modules.memory_optimization import manage_memory_optimization
+from modules.orphaned_packages import manage_orphaned_packages
+from modules.program_removal import remove_program_and_residuals
+from modules.snap_cleanup import clean_snap_old_versions
+from modules.system_cache import manage_system_cache
+from modules.user_cache import manage_user_cache
+from ui.colors import BOLD, CYAN, DIM, GREEN, RED, RESET, WHITE, YELLOW
+from ui.terminal import _divider, ask_choice, center_print, clear_screen, cols
 
 __version__ = "1.1.0"
 

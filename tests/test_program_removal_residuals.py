@@ -1,6 +1,5 @@
-import pytest 
 from modules.program_removal import _collect_residuals
-from pathlib import Path
+
 
 def test_finds_existing_config_folder(monkeypatch, tmp_path):
     monkeypatch.setattr("modules.program_removal.get_user_home", lambda: tmp_path)

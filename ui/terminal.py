@@ -8,7 +8,7 @@ import sys
 import time
 from contextlib import contextmanager
 
-from ui.colors import GREEN, YELLOW, RED, CYAN, WHITE, BOLD, DIM, RESET
+from ui.colors import BOLD, CYAN, DIM, RED, RESET, WHITE
 
 
 @contextmanager
