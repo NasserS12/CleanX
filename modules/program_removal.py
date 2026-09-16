@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 from core import state
-from core.fs_utils import format_size, _walk_size, delete_path_content, _run
+from core.fs_utils import format_size, _walk_size, delete_path_content, _run , _apt_env
 from core.sudo import get_user_home
 from ui.colors import CYAN, YELLOW, RED, GREEN, WHITE, BOLD, DIM, RESET
 from ui.terminal import clear_screen, header, center_print, cols, ask_choice, ask_yes_no, wait_for_enter, _divider
@@ -103,7 +103,8 @@ def _get_apt_reverse_deps(pkg: str) -> list[str]:
     try:
         r = subprocess.run(
             ["apt-cache", "rdepends", "--installed", pkg],
-            capture_output=True, text=True, timeout=15
+            capture_output=True, text=True, timeout=15 , env=_apt_env()
+
         )
         deps: list[str] = []
         capture = False

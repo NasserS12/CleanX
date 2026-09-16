@@ -59,6 +59,19 @@ def _is_protected_path(path: Path) -> bool:
         for prefix in _PROTECTED_PREFIXES
     )
 
+def _apt_env() -> dict:
+    """Copy of the current environment with the locale forced to C.
+
+    apt/dpkg translate their output based on the system locale, so
+    code that matches literal English phrases in that output (e.g.
+    "Reverse Depends:") silently gets nothing on a non-English
+    system. Passing this env to subprocess calls forces English
+    output regardless of the user's configured locale.
+    """
+    env = os.environ.copy()
+    env["LC_ALL"] = "C"
+    env["LANG"] = "C"
+    return env
 
 def format_size(b: int) -> str:
     if b <= 0:

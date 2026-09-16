@@ -2,7 +2,7 @@
 import subprocess
 
 from core import state
-from core.fs_utils import _run
+from core.fs_utils import _run , _apt_env
 from ui.colors import CYAN, YELLOW, RED, GREEN, DIM, RESET
 from ui.terminal import clear_screen, header, center_print, ask_yes_no, wait_for_enter
 
@@ -13,7 +13,7 @@ def manage_orphaned_packages() -> None:
         center_print(f"{RED}  [✗] Error: Sudo privileges required.{RESET}"); wait_for_enter(); return
     center_print(f"{CYAN}  [*] Querying APT for redundant dependencies...{RESET}\n")
     try:
-        out = subprocess.check_output(["sudo", "apt-get", "autoremove", "--dry-run"], text=True)
+        out = subprocess.check_output(["sudo", "apt-get", "autoremove", "--dry-run"], text=True, env=_apt_env())
     except Exception: out = ""
     orphans = []
     capture = False
